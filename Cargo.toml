@@ -6,6 +6,6 @@ edition = "2018"
 description = "A CLI tool for finding duplicate files from directory tree and de-duplicating them."
 categories = ["command-line-utilities", "filesystem"]
 repository = "https://github.com/akmizno/duplink"
-license = "MIT"
+license = "MIT/Apache-2.0"
 
 [dependencies]
