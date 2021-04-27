@@ -1,10 +1,18 @@
 mod traits;
 pub use traits::FileAttr;
 
+
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
 pub use unix::Entry;
+
+
+#[cfg(not(unix))]
+mod generic;
+#[cfg(not(unix))]
+pub use generic::Entry;
+
 
 #[cfg(test)]
 mod tests {
