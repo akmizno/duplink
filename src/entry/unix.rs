@@ -50,11 +50,11 @@ impl FileAttr for Entry {
     fn path(&self) -> &Path {
         self.path.as_path()
     }
-    fn dev(&self) -> u64 {
-        self.dev
+    fn dev(&self) -> Option<u64> {
+        Some(self.dev)
     }
-    fn ino(&self) -> u64 {
-        self.ino
+    fn ino(&self) -> Option<u64> {
+        Some(self.ino)
     }
     fn readonly(&self) -> bool {
         self.readonly
