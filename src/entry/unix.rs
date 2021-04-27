@@ -5,7 +5,7 @@ use std::os::unix::fs::MetadataExt;
 
 use super::FileAttr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Entry {
     path: PathBuf,
     len: u64,
