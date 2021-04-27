@@ -12,4 +12,3 @@ pub trait FileAttr {
 //     fn fast_digest() -> u64;
 //     fn digest() -> u64;
 // }
-

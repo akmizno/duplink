@@ -3,18 +3,15 @@ use std::path::Path;
 mod traits;
 pub use traits::FileAttr;
 
-
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
 pub use unix::Entry;
 
-
 #[cfg(not(unix))]
 mod generic;
 #[cfg(not(unix))]
 pub use generic::Entry;
-
 
 pub enum Node {
     Single(Entry),
@@ -28,7 +25,7 @@ impl From<Entry> for Node {
 }
 impl From<Vec<Entry>> for Node {
     fn from(mut entries: Vec<Entry>) -> Self {
-        assert!(0 < entries.len());
+        assert!(!entries.is_empty());
 
         if 1 == entries.len() {
             Node::Single(entries.pop().unwrap())
@@ -43,9 +40,9 @@ impl Node {
         match self {
             Node::Single(e) => e,
             Node::Multi(v) => unsafe {
-                debug_assert!(0 < v.len());
+                debug_assert!(!v.is_empty());
                 v.get_unchecked(0)
-            }
+            },
         }
     }
 }
