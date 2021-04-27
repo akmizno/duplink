@@ -3,19 +3,21 @@ use std::path::{Path, PathBuf};
 
 use std::os::unix::fs::MetadataExt;
 
-use super::{Entry, OsEntry};
+use super::FileAttr;
 
 #[derive(Debug)]
-pub struct UnixEntry {
+pub struct Entry {
     path: PathBuf,
     len: u64,
     dev: u64,
     ino: u64,
+    readonly: bool,
+
     fast_digest: Option<u64>,
     digest: Option<u64>,
 }
 
-impl UnixEntry {
+impl Entry {
     pub fn from_path<P: AsRef<Path>>(p: P) -> Result<Option<Self>> {
         let path = p.as_ref();
         let meta = path.symlink_metadata()?;
@@ -28,32 +30,33 @@ impl UnixEntry {
         let len = meta.len();
         let dev = meta.dev();
         let ino = meta.ino();
+        let readonly = meta.permissions().readonly();
 
-        Ok(Some(UnixEntry {
+        Ok(Some(Entry {
             path: PathBuf::from(path),
             len,
             dev,
             ino,
+            readonly,
             fast_digest: None,
             digest: None,
         }))
     }
 }
-impl Entry for UnixEntry {
+impl FileAttr for Entry {
     fn len(&self) -> u64 {
         self.len
     }
     fn path(&self) -> &Path {
         self.path.as_path()
     }
-}
-impl OsEntry for UnixEntry {
     fn dev(&self) -> u64 {
         self.dev
     }
     fn ino(&self) -> u64 {
         self.ino
     }
+    fn readonly(&self) -> bool {
+        self.readonly
+    }
 }
-
-pub type DEntry = UnixEntry;
