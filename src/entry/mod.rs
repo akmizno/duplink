@@ -51,8 +51,8 @@ impl FileAttr for Node {
     fn path(&self) -> &Path {
         self.entry().path()
     }
-    fn len(&self) -> u64 {
-        self.entry().len()
+    fn size(&self) -> u64 {
+        self.entry().size()
     }
     fn dev(&self) -> Option<u64> {
         self.entry().dev()
@@ -105,7 +105,7 @@ mod tests {
         let e = e.unwrap();
 
         assert!(e.path().exists());
-        assert!(0 < e.len());
+        assert!(0 < e.size());
     }
 
     #[test]
@@ -125,13 +125,13 @@ mod tests {
         let mnode2 = Node::from(v2);
 
         assert_eq!(mnode1.path(), snode.path());
-        assert_eq!(mnode1.len(), snode.len());
+        assert_eq!(mnode1.size(), snode.size());
         assert_eq!(mnode1.dev(), snode.dev());
         assert_eq!(mnode1.ino(), snode.ino());
         assert_eq!(mnode1.readonly(), snode.readonly());
 
         assert_eq!(mnode1.path(), mnode2.path());
-        assert_eq!(mnode1.len(), mnode2.len());
+        assert_eq!(mnode1.size(), mnode2.size());
         assert_eq!(mnode1.dev(), mnode2.dev());
         assert_eq!(mnode1.ino(), mnode2.ino());
         assert_eq!(mnode1.readonly(), mnode2.readonly());

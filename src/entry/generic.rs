@@ -36,7 +36,7 @@ impl Entry {
     }
 }
 impl FileAttr for Entry {
-    fn len(&self) -> u64 {
+    fn size(&self) -> u64 {
         self.len
     }
     fn path(&self) -> &Path {
