@@ -1,12 +1,11 @@
 use std::path::Path;
 
-pub trait Entry {
-    fn len(&self) -> u64;
+pub trait FileAttr {
     fn path(&self) -> &Path;
-}
-pub trait OsEntry {
+    fn len(&self) -> u64;
     fn dev(&self) -> u64;
     fn ino(&self) -> u64;
+    fn readonly(&self) -> bool;
 }
 
 // trait Digest {
