@@ -3,15 +3,24 @@ use std::path::Path;
 mod traits;
 pub use traits::FileAttr;
 
+mod generic;
+
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
 pub use unix::Entry;
 
 #[cfg(not(unix))]
-mod generic;
-#[cfg(not(unix))]
 pub use generic::Entry;
+
+fn have_all_same_dev(entries: &[Entry]) -> bool {
+    if entries.len() < 2 {
+        return true;
+    }
+
+    let dev = entries[0].dev();
+    entries[1..].iter().all(|e| e.dev() == dev)
+}
 
 pub enum Node {
     Single(Entry),
@@ -23,9 +32,11 @@ impl From<Entry> for Node {
         Node::Single(entry)
     }
 }
+
 impl From<Vec<Entry>> for Node {
     fn from(mut entries: Vec<Entry>) -> Self {
         assert!(!entries.is_empty());
+        debug_assert!(have_all_same_dev(&entries));
 
         if 1 == entries.len() {
             Node::Single(entries.pop().unwrap())
@@ -36,6 +47,14 @@ impl From<Vec<Entry>> for Node {
 }
 
 impl Node {
+    #[allow(dead_code)]
+    pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> Option<Self> {
+        match Entry::from_path(p) {
+            None => None,
+            Some(e) => Some(Node::from(e)),
+        }
+    }
+
     fn entry(&self) -> &Entry {
         match self {
             Node::Single(e) => e,
@@ -73,67 +92,51 @@ mod tests {
 
     #[test]
     fn from_regular_path() {
-        let e = Entry::from_path("files/softlink/original");
-        assert!(e.is_ok());
-        assert!(e.unwrap().is_some());
+        let p = "files/softlink/original";
+        let n = Node::from_path(p).unwrap();
+        assert_eq!(n.path().as_os_str(), p);
+        assert_eq!(n.size(), 9);
+        assert!(!n.readonly());
     }
     #[test]
     fn from_link_path() {
-        let e = Entry::from_path("files/softlink/original_link");
-        assert!(e.is_ok());
-        assert!(e.unwrap().is_none());
+        let n = Node::from_path("files/softlink/original_link");
+        assert!(n.is_none());
     }
     #[test]
     fn from_dir_path() {
-        let e = Entry::from_path("files/softlink");
-        assert!(e.is_ok());
-        assert!(e.unwrap().is_none());
+        let n = Node::from_path("files/softlink");
+        assert!(n.is_none());
     }
     #[test]
     fn from_nonexist_path() {
-        let e = Entry::from_path("files/nonexist-path");
-        assert!(e.is_err());
+        let p = "files/nonexist-path";
+        let n = Node::from_path(p);
+        assert!(n.is_none());
     }
-
     #[test]
-    fn entry_fileattr_interface() {
-        // Interface check
-        let e = Entry::from_path("files/softlink/original");
-        assert!(e.is_ok());
-        let e = e.unwrap();
-        assert!(e.is_some());
-        let e = e.unwrap();
-
-        assert!(e.path().exists());
-        assert!(0 < e.size());
+    fn from_single_entry() {
+        let p = "files/softlink/original";
+        let e1 = Entry::from_path(p).unwrap();
+        let e2 = Entry::from_path(p).unwrap();
+        let n = Node::from(e1);
+        assert_eq!(n.path(), e2.path());
+        assert_eq!(n.size(), e2.size());
+        assert_eq!(n.readonly(), e2.readonly());
+        assert_eq!(n.dev(), e2.dev());
+        assert_eq!(n.ino(), e2.ino());
     }
-
     #[test]
-    fn node_fileattr_interface() {
-        // Interface check
-        let e = Entry::from_path("files/softlink/original");
-        assert!(e.is_ok());
-        let e = e.unwrap();
-        assert!(e.is_some());
-        let e = e.unwrap();
-
-        let v1 = vec![e.clone()];
-        let v2 = vec![e.clone(), e.clone()];
-
-        let snode = Node::from(e);
-        let mnode1 = Node::from(v1);
-        let mnode2 = Node::from(v2);
-
-        assert_eq!(mnode1.path(), snode.path());
-        assert_eq!(mnode1.size(), snode.size());
-        assert_eq!(mnode1.dev(), snode.dev());
-        assert_eq!(mnode1.ino(), snode.ino());
-        assert_eq!(mnode1.readonly(), snode.readonly());
-
-        assert_eq!(mnode1.path(), mnode2.path());
-        assert_eq!(mnode1.size(), mnode2.size());
-        assert_eq!(mnode1.dev(), mnode2.dev());
-        assert_eq!(mnode1.ino(), mnode2.ino());
-        assert_eq!(mnode1.readonly(), mnode2.readonly());
+    fn from_multiple_entry() {
+        let p = "files/softlink/original";
+        let e1 = Entry::from_path(p).unwrap();
+        let e2 = Entry::from_path(p).unwrap();
+        let e3 = Entry::from_path(p).unwrap();
+        let n = Node::from(vec![e1, e2]);
+        assert_eq!(n.path(), e3.path());
+        assert_eq!(n.size(), e3.size());
+        assert_eq!(n.readonly(), e3.readonly());
+        assert_eq!(n.dev(), e3.dev());
+        assert_eq!(n.ino(), e3.ino());
     }
 }

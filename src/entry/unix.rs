@@ -1,54 +1,48 @@
-use std::io::Result;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use std::os::unix::fs::MetadataExt;
 
+use super::generic;
 use super::FileAttr;
 
 #[derive(Debug, Clone)]
 pub struct Entry {
-    path: PathBuf,
-    len: u64,
+    entry: generic::Entry,
     dev: u64,
     ino: u64,
-    readonly: bool,
-
-    fast_digest: Option<u64>,
-    digest: Option<u64>,
 }
 
 impl Entry {
-    pub fn from_path<P: AsRef<Path>>(p: P) -> Result<Option<Self>> {
-        let path = p.as_ref();
-        let meta = path.symlink_metadata()?;
+    pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> Option<Self> {
+        let meta = p.as_ref().symlink_metadata();
+        if let Err(e) = &meta {
+            log::warn!("{}", e);
+            return None;
+        }
+        let meta = meta.unwrap();
 
         if !meta.is_file() {
-            // path is not regular file
-            return Ok(None);
-        };
+            return None;
+        }
 
-        let len = meta.len();
-        let dev = meta.dev();
-        let ino = meta.ino();
-        let readonly = meta.permissions().readonly();
+        let entry = generic::Entry::new(p, meta.len(), meta.permissions().readonly());
 
-        Ok(Some(Entry {
-            path: PathBuf::from(path),
-            len,
-            dev,
-            ino,
-            readonly,
-            fast_digest: None,
-            digest: None,
-        }))
+        Some(Entry {
+            entry,
+            dev: meta.dev(),
+            ino: meta.ino(),
+        })
     }
 }
 impl FileAttr for Entry {
     fn size(&self) -> u64 {
-        self.len
+        self.entry.size()
     }
     fn path(&self) -> &Path {
-        self.path.as_path()
+        self.entry.path()
+    }
+    fn readonly(&self) -> bool {
+        self.entry.readonly()
     }
     fn dev(&self) -> Option<u64> {
         Some(self.dev)
@@ -56,7 +50,37 @@ impl FileAttr for Entry {
     fn ino(&self) -> Option<u64> {
         Some(self.ino)
     }
-    fn readonly(&self) -> bool {
-        self.readonly
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Entry;
+    use super::FileAttr;
+
+    #[test]
+    fn from_regular_path() {
+        let p = "files/softlink/original";
+        let e = Entry::from_path(p).unwrap();
+        assert_eq!(e.path().as_os_str(), p);
+        assert_eq!(e.size(), 9);
+        assert!(!e.readonly());
+        assert!(e.dev().is_some());
+        assert!(e.ino().is_some());
+    }
+    #[test]
+    fn from_link_path() {
+        let e = Entry::from_path("files/softlink/original_link");
+        assert!(e.is_none());
+    }
+    #[test]
+    fn from_dir_path() {
+        let e = Entry::from_path("files/softlink");
+        assert!(e.is_none());
+    }
+    #[test]
+    fn from_nonexist_path() {
+        let p = "files/nonexist-path";
+        let e = Entry::from_path(p);
+        assert!(e.is_none());
     }
 }
