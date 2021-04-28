@@ -123,7 +123,10 @@ mod tests {
         let p = "files/softlink/original";
         let n = Node::from_path(p).unwrap();
         assert_eq!(n.path().as_os_str(), p);
-        assert_eq!(n.size(), 9);
+        #[cfg(unix)]
+        assert!(n.size() == 9);
+        #[cfg(windows)]
+        assert!(n.size() == 10);
         assert!(!n.readonly());
     }
     #[test]

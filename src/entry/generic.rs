@@ -160,7 +160,10 @@ mod tests {
         let p = "files/softlink/original";
         let e = Entry::from_path(p).unwrap();
         assert_eq!(e.path().as_os_str(), p);
-        assert_eq!(e.size(), 9);
+        #[cfg(unix)]
+        assert!(e.size() == 9);
+        #[cfg(windows)]
+        assert!(e.size() == 10);
         assert!(!e.readonly());
         assert!(e.dev().is_none());
         assert!(e.ino().is_none());
