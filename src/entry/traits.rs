@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+use std::io;
 use std::path::Path;
 
 pub trait FileAttr {
@@ -8,7 +10,13 @@ pub trait FileAttr {
     fn ino(&self) -> Option<u64>;
 }
 
-// trait Digest {
-//     fn fast_digest() -> u64;
-//     fn digest() -> u64;
-// }
+#[async_trait]
+pub trait Digest {
+    async fn fast_digest(&mut self) -> io::Result<u64>;
+    async fn digest(&mut self) -> io::Result<u64>;
+}
+
+#[async_trait]
+pub trait ContentEq {
+    async fn eq_bytes(&self, other: &Self) -> io::Result<bool>;
+}

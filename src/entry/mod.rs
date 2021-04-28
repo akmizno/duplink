@@ -1,7 +1,7 @@
 use std::path::Path;
 
 mod traits;
-pub use traits::FileAttr;
+pub use traits::{ContentEq, Digest, FileAttr};
 
 mod generic;
 

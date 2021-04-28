@@ -12,7 +12,8 @@ license = "MIT/Apache-2.0"
 lto = true
 
 [dependencies]
-tokio = "1"
+tokio = { version = "1", features = ["fs", "io-util", "io-std", "macros", "rt", "sync"] }
+async-trait = "0.1"
 clap = "2"
 log = "0.4"
 env_logger = "0.8"

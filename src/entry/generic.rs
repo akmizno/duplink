@@ -1,6 +1,13 @@
+use async_trait::async_trait;
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
+use tokio::fs::File;
+use tokio::io::{self, AsyncReadExt, BufReader};
+use twox_hash::XxHash64;
 
-use super::FileAttr;
+use super::{ContentEq, Digest, FileAttr};
+
+const BUFSIZE: usize = 8192;
 
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -40,6 +47,25 @@ impl Entry {
             digest: None,
         }
     }
+
+    async fn calc_hash(&self, size: usize) -> io::Result<u64> {
+        let f = File::open(self.path()).await?;
+        let mut reader = BufReader::new(f);
+        let mut buffer = [0; BUFSIZE];
+
+        let mut h: XxHash64 = Default::default();
+        let mut size_count = 0;
+        while size_count < size {
+            let n = reader.read(&mut buffer[..]).await?;
+            if n == 0 {
+                break;
+            }
+            h.write(&buffer[..n]);
+            size_count += n;
+        }
+
+        Ok(h.finish())
+    }
 }
 impl FileAttr for Entry {
     fn size(&self) -> u64 {
@@ -59,10 +85,66 @@ impl FileAttr for Entry {
     }
 }
 
+#[async_trait]
+impl Digest for Entry {
+    async fn fast_digest(&mut self) -> io::Result<u64> {
+        let d = match self.fast_digest {
+            Some(d) => d,
+            None => {
+                let d = self.calc_hash(BUFSIZE).await?;
+                self.fast_digest = Some(d);
+                d
+            }
+        };
+        Ok(d)
+    }
+    async fn digest(&mut self) -> io::Result<u64> {
+        let d = match self.digest {
+            Some(d) => d,
+            None => {
+                let d = self.calc_hash(self.size() as usize).await?;
+                self.digest = Some(d);
+                d
+            }
+        };
+        Ok(d)
+    }
+}
+
+#[async_trait]
+impl ContentEq for Entry {
+    async fn eq_bytes(&self, other: &Self) -> io::Result<bool> {
+        if self.size() != other.size() {
+            return Ok(false);
+        }
+
+        let f1 = File::open(self.path()).await?;
+        let f2 = File::open(other.path()).await?;
+        let mut reader1 = BufReader::new(f1);
+        let mut reader2 = BufReader::new(f2);
+
+        let mut buffer1 = [0; BUFSIZE];
+        let mut buffer2 = [0; BUFSIZE];
+
+        loop {
+            let n1 = reader1.read(&mut buffer1[..]).await?;
+            let n2 = reader2.read(&mut buffer2[..]).await?;
+
+            if n1 == 0 && n2 == 0 {
+                return Ok(true);
+            }
+
+            if buffer1[..n1] != buffer2[..n2] {
+                return Ok(false);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Entry;
-    use super::FileAttr;
+    use super::{ContentEq, Digest, FileAttr};
 
     #[test]
     fn from_regular_path() {
@@ -89,5 +171,69 @@ mod tests {
         let p = "files/nonexist-path";
         let e = Entry::from_path(p);
         assert!(e.is_none());
+    }
+
+    #[tokio::test]
+    async fn fast_digest_eq() {
+        let p = "files/softlink/original";
+        let mut e1 = Entry::from_path(p).unwrap();
+        let mut e2 = Entry::from_path(p).unwrap();
+        let d1 = e1.fast_digest().await.unwrap();
+        let d2 = e2.fast_digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn fast_digest_eq_multiple_time() {
+        let p = "files/softlink/original";
+        let mut e = Entry::from_path(p).unwrap();
+        let d1 = e.fast_digest().await.unwrap();
+        let d2 = e.fast_digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn fast_digest_ne() {
+        let mut e1 = Entry::from_path("files/small-uniques/unique1").unwrap();
+        let mut e2 = Entry::from_path("files/small-uniques/unique2").unwrap();
+        let d1 = e1.fast_digest().await.unwrap();
+        let d2 = e2.fast_digest().await.unwrap();
+        assert_ne!(d1, d2);
+    }
+
+    #[tokio::test]
+    async fn digest_eq() {
+        let p = "files/softlink/original";
+        let mut e1 = Entry::from_path(p).unwrap();
+        let mut e2 = Entry::from_path(p).unwrap();
+        let d1 = e1.digest().await.unwrap();
+        let d2 = e2.digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn digest_eq_multiple_time() {
+        let p = "files/softlink/original";
+        let mut e = Entry::from_path(p).unwrap();
+        let d1 = e.digest().await.unwrap();
+        let d2 = e.digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn digest_ne() {
+        let mut e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let mut e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap();
+        let d1 = e1.digest().await.unwrap();
+        let d2 = e2.digest().await.unwrap();
+        assert_ne!(d1, d2);
+    }
+    #[tokio::test]
+    async fn bytes_eq() {
+        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let e2 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        assert!(e1.eq_bytes(&e2).await.unwrap());
+    }
+    #[tokio::test]
+    async fn bytes_ne() {
+        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap();
+        assert!(!e1.eq_bytes(&e2).await.unwrap());
     }
 }
