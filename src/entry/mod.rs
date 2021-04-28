@@ -115,8 +115,8 @@ impl ContentEq for Node {
 #[cfg(test)]
 mod tests {
     use super::Entry;
-    use super::{ContentEq, Digest, FileAttr};
     use super::Node;
+    use super::{ContentEq, Digest, FileAttr};
 
     #[test]
     fn from_regular_path() {
