@@ -9,6 +9,15 @@ use super::{ContentEq, Digest, FileAttr};
 
 const BUFSIZE: usize = 8192;
 
+// make uninitialized buffer
+fn make_buffer() -> Box<[u8]> {
+    unsafe {
+        let mut v = Vec::with_capacity(BUFSIZE);
+        v.set_len(BUFSIZE);
+        v.into_boxed_slice()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     path: PathBuf,
@@ -51,7 +60,7 @@ impl Entry {
     async fn calc_hash(&self, size: usize) -> io::Result<u64> {
         let f = File::open(self.path()).await?;
         let mut reader = BufReader::new(f);
-        let mut buffer = [0; BUFSIZE];
+        let mut buffer = make_buffer();
 
         let mut h: XxHash64 = Default::default();
         let mut size_count = 0;
@@ -123,8 +132,8 @@ impl ContentEq for Entry {
         let mut reader1 = BufReader::new(f1);
         let mut reader2 = BufReader::new(f2);
 
-        let mut buffer1 = [0; BUFSIZE];
-        let mut buffer2 = [0; BUFSIZE];
+        let mut buffer1 = make_buffer();
+        let mut buffer2 = make_buffer();
 
         loop {
             let n1 = reader1.read(&mut buffer1[..]).await?;
