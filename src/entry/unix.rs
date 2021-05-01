@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::path::Path;
 use tokio::io;
+use walkdir::DirEntry;
 
 use std::os::unix::fs::MetadataExt;
 
@@ -28,6 +29,27 @@ impl Entry {
         }
 
         let entry = generic::Entry::new(p, meta.len(), meta.permissions().readonly());
+
+        Some(Entry {
+            entry,
+            dev: meta.dev(),
+            ino: meta.ino(),
+        })
+    }
+
+    pub(crate) fn from_direntry(d: DirEntry) -> Option<Self> {
+        let meta = d.metadata();
+        if let Err(e) = &meta {
+            log::warn!("{}", e);
+            return None;
+        }
+        let meta = meta.unwrap();
+
+        if !meta.is_file() {
+            return None;
+        }
+
+        let entry = generic::Entry::new(d.path(), meta.len(), meta.permissions().readonly());
 
         Some(Entry {
             entry,

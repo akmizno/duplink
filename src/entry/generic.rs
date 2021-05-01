@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, BufReader};
 use twox_hash::XxHash64;
+use walkdir::DirEntry;
 
 use super::{ContentEq, Digest, FileAttr};
 
@@ -45,6 +46,22 @@ impl Entry {
         }
 
         Some(Entry::new(path, meta.len(), meta.permissions().readonly()))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_direntry(d: DirEntry) -> Option<Entry> {
+        let meta = d.metadata();
+        if let Err(e) = &meta {
+            log::warn!("{}", e);
+            return None;
+        }
+        let meta = meta.unwrap();
+
+        if !meta.is_file() {
+            return None;
+        }
+
+        Some(Entry::new(d.path(), meta.len(), meta.permissions().readonly()))
     }
 
     pub fn new<P: AsRef<Path>>(p: P, len: u64, readonly: bool) -> Self {
