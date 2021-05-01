@@ -50,10 +50,14 @@ impl From<Vec<Entry>> for Node {
 
 impl Node {
     #[allow(dead_code)]
-    pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> Option<Self> {
-        match Entry::from_path(p) {
-            None => None,
-            Some(e) => Some(Node::from(e)),
+    pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
+        let entry = Entry::from_path(p);
+        if let Err(e) = entry {
+            return Err(e);
+        }
+        match entry.unwrap() {
+            None => Ok(None),
+            Some(e) => Ok(Some(Node::from(e))),
         }
     }
 
@@ -121,7 +125,7 @@ mod tests {
     #[test]
     fn from_regular_path() {
         let p = "files/softlink/original";
-        let n = Node::from_path(p).unwrap();
+        let n = Node::from_path(p).unwrap().unwrap();
         assert_eq!(n.path().as_os_str(), p);
         #[cfg(unix)]
         assert!(n.size() == 9);
@@ -131,25 +135,25 @@ mod tests {
     }
     #[test]
     fn from_link_path() {
-        let n = Node::from_path("files/softlink/original_link");
+        let n = Node::from_path("files/softlink/original_link").unwrap();
         assert!(n.is_none());
     }
     #[test]
     fn from_dir_path() {
-        let n = Node::from_path("files/softlink");
+        let n = Node::from_path("files/softlink").unwrap();
         assert!(n.is_none());
     }
     #[test]
     fn from_nonexist_path() {
         let p = "files/nonexist-path";
         let n = Node::from_path(p);
-        assert!(n.is_none());
+        assert!(n.is_err());
     }
     #[test]
     fn from_single_entry() {
         let p = "files/softlink/original";
-        let e1 = Entry::from_path(p).unwrap();
-        let e2 = Entry::from_path(p).unwrap();
+        let e1 = Entry::from_path(p).unwrap().unwrap();
+        let e2 = Entry::from_path(p).unwrap().unwrap();
         let n = Node::from(e1);
         assert_eq!(n.path(), e2.path());
         assert_eq!(n.size(), e2.size());
@@ -160,9 +164,9 @@ mod tests {
     #[test]
     fn from_multiple_entry() {
         let p = "files/softlink/original";
-        let e1 = Entry::from_path(p).unwrap();
-        let e2 = Entry::from_path(p).unwrap();
-        let e3 = Entry::from_path(p).unwrap();
+        let e1 = Entry::from_path(p).unwrap().unwrap();
+        let e2 = Entry::from_path(p).unwrap().unwrap();
+        let e3 = Entry::from_path(p).unwrap().unwrap();
         let n = Node::from(vec![e1, e2]);
         assert_eq!(n.path(), e3.path());
         assert_eq!(n.size(), e3.size());
@@ -174,8 +178,8 @@ mod tests {
     #[tokio::test]
     async fn fast_digest_eq() {
         let p = "files/softlink/original";
-        let mut e1 = Node::from_path(p).unwrap();
-        let mut e2 = Node::from_path(p).unwrap();
+        let mut e1 = Node::from_path(p).unwrap().unwrap();
+        let mut e2 = Node::from_path(p).unwrap().unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
@@ -183,15 +187,15 @@ mod tests {
     #[tokio::test]
     async fn fast_digest_eq_multiple_time() {
         let p = "files/softlink/original";
-        let mut e = Node::from_path(p).unwrap();
+        let mut e = Node::from_path(p).unwrap().unwrap();
         let d1 = e.fast_digest().await.unwrap();
         let d2 = e.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
     }
     #[tokio::test]
     async fn fast_digest_ne() {
-        let mut e1 = Node::from_path("files/small-uniques/unique1").unwrap();
-        let mut e2 = Node::from_path("files/small-uniques/unique2").unwrap();
+        let mut e1 = Node::from_path("files/small-uniques/unique1").unwrap().unwrap();
+        let mut e2 = Node::from_path("files/small-uniques/unique2").unwrap().unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
@@ -200,8 +204,8 @@ mod tests {
     #[tokio::test]
     async fn digest_eq() {
         let p = "files/softlink/original";
-        let mut e1 = Node::from_path(p).unwrap();
-        let mut e2 = Node::from_path(p).unwrap();
+        let mut e1 = Node::from_path(p).unwrap().unwrap();
+        let mut e2 = Node::from_path(p).unwrap().unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_eq!(d1, d2);
@@ -209,29 +213,29 @@ mod tests {
     #[tokio::test]
     async fn digest_eq_multiple_time() {
         let p = "files/softlink/original";
-        let mut e = Node::from_path(p).unwrap();
+        let mut e = Node::from_path(p).unwrap().unwrap();
         let d1 = e.digest().await.unwrap();
         let d2 = e.digest().await.unwrap();
         assert_eq!(d1, d2);
     }
     #[tokio::test]
     async fn digest_ne() {
-        let mut e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap();
-        let mut e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap();
+        let mut e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let mut e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test]
     async fn bytes_eq() {
-        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap();
-        let e2 = Node::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         assert!(e1.eq_bytes(&e2).await.unwrap());
     }
     #[tokio::test]
     async fn bytes_ne() {
-        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap();
-        let e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap();
+        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
         assert!(!e1.eq_bytes(&e2).await.unwrap());
     }
 }

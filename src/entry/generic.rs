@@ -31,37 +31,38 @@ pub struct Entry {
 
 impl Entry {
     #[allow(dead_code)]
-    pub fn from_path<P: AsRef<Path>>(p: P) -> Option<Self> {
+    pub fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
         let path = p.as_ref();
 
         let meta = path.symlink_metadata();
-        if let Err(e) = &meta {
-            log::warn!("{}", e);
-            return None;
+        if let Err(e) = meta {
+            return Err(e);
         }
         let meta = meta.unwrap();
 
         if !meta.is_file() {
-            return None;
+            return Ok(None);
         }
 
-        Some(Entry::new(path, meta.len(), meta.permissions().readonly()))
+        Ok(Some(Entry::new(path, meta.len(), meta.permissions().readonly())))
     }
 
     #[allow(dead_code)]
-    pub(crate) fn from_direntry(d: DirEntry) -> Option<Entry> {
+    pub(crate) fn from_direntry(d: DirEntry) -> io::Result<Option<Entry>> {
         let meta = d.metadata();
-        if let Err(e) = &meta {
-            log::warn!("{}", e);
-            return None;
+        if let walkdir::Result::Err(we) = meta {
+            match we.into_io_error() {
+                None => return Ok(None),
+                Some(e) => return Err(e)
+            }
         }
         let meta = meta.unwrap();
 
         if !meta.is_file() {
-            return None;
+            return Ok(None);
         }
 
-        Some(Entry::new(d.path(), meta.len(), meta.permissions().readonly()))
+        Ok(Some(Entry::new(d.path(), meta.len(), meta.permissions().readonly())))
     }
 
     pub fn new<P: AsRef<Path>>(p: P, len: u64, readonly: bool) -> Self {
@@ -179,7 +180,7 @@ mod tests {
     #[test]
     fn from_regular_path() {
         let p = "files/softlink/original";
-        let e = Entry::from_path(p).unwrap();
+        let e = Entry::from_path(p).unwrap().unwrap();
         assert_eq!(e.path().as_os_str(), p);
         #[cfg(unix)]
         assert!(e.size() == 9);
@@ -191,26 +192,26 @@ mod tests {
     }
     #[test]
     fn from_link_path() {
-        let e = Entry::from_path("files/softlink/original_link");
+        let e = Entry::from_path("files/softlink/original_link").unwrap();
         assert!(e.is_none());
     }
     #[test]
     fn from_dir_path() {
-        let e = Entry::from_path("files/softlink");
+        let e = Entry::from_path("files/softlink").unwrap();
         assert!(e.is_none());
     }
     #[test]
     fn from_nonexist_path() {
         let p = "files/nonexist-path";
         let e = Entry::from_path(p);
-        assert!(e.is_none());
+        assert!(e.is_err());
     }
 
     #[tokio::test]
     async fn fast_digest_eq() {
         let p = "files/softlink/original";
-        let mut e1 = Entry::from_path(p).unwrap();
-        let mut e2 = Entry::from_path(p).unwrap();
+        let mut e1 = Entry::from_path(p).unwrap().unwrap();
+        let mut e2 = Entry::from_path(p).unwrap().unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
@@ -218,29 +219,29 @@ mod tests {
     #[tokio::test]
     async fn fast_digest_eq_multiple_time() {
         let p = "files/softlink/original";
-        let mut e = Entry::from_path(p).unwrap();
+        let mut e = Entry::from_path(p).unwrap().unwrap();
         let d1 = e.fast_digest().await.unwrap();
         let d2 = e.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
     }
     #[tokio::test]
     async fn fast_digest_ne() {
-        let mut e1 = Entry::from_path("files/small-uniques/unique1").unwrap();
-        let mut e2 = Entry::from_path("files/small-uniques/unique2").unwrap();
+        let mut e1 = Entry::from_path("files/small-uniques/unique1").unwrap().unwrap();
+        let mut e2 = Entry::from_path("files/small-uniques/unique2").unwrap().unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test]
     async fn fast_digest_small() {
-        let mut e = Entry::from_path("files/small-uniques/unique1").unwrap();
+        let mut e = Entry::from_path("files/small-uniques/unique1").unwrap().unwrap();
         let f = e.fast_digest().await.unwrap();
         let d = e.digest().await.unwrap();
         assert_eq!(f, d);
     }
     #[tokio::test]
     async fn fast_digest_large() {
-        let mut e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let mut e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         let f = e.fast_digest().await.unwrap();
         let d = e.digest().await.unwrap();
         assert_ne!(f, d);
@@ -249,8 +250,8 @@ mod tests {
     #[tokio::test]
     async fn digest_eq() {
         let p = "files/softlink/original";
-        let mut e1 = Entry::from_path(p).unwrap();
-        let mut e2 = Entry::from_path(p).unwrap();
+        let mut e1 = Entry::from_path(p).unwrap().unwrap();
+        let mut e2 = Entry::from_path(p).unwrap().unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_eq!(d1, d2);
@@ -258,29 +259,29 @@ mod tests {
     #[tokio::test]
     async fn digest_eq_multiple_time() {
         let p = "files/softlink/original";
-        let mut e = Entry::from_path(p).unwrap();
+        let mut e = Entry::from_path(p).unwrap().unwrap();
         let d1 = e.digest().await.unwrap();
         let d2 = e.digest().await.unwrap();
         assert_eq!(d1, d2);
     }
     #[tokio::test]
     async fn digest_ne() {
-        let mut e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
-        let mut e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap();
+        let mut e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let mut e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test]
     async fn bytes_eq() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         assert!(e1.eq_bytes(&e2).await.unwrap());
     }
     #[tokio::test]
     async fn bytes_ne() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap();
+        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
         assert!(!e1.eq_bytes(&e2).await.unwrap());
     }
 }
