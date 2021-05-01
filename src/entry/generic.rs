@@ -97,6 +97,10 @@ impl FileAttr for Entry {
 #[async_trait]
 impl Digest for Entry {
     async fn fast_digest(&mut self) -> io::Result<u64> {
+        if self.size() as usize <= BUFSIZE {
+            return self.digest().await;
+        }
+
         let d = match self.fast_digest {
             Some(d) => d,
             None => {
@@ -209,6 +213,20 @@ mod tests {
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
+    }
+    #[tokio::test]
+    async fn fast_digest_small() {
+        let mut e = Entry::from_path("files/small-uniques/unique1").unwrap();
+        let f = e.fast_digest().await.unwrap();
+        let d = e.digest().await.unwrap();
+        assert_eq!(f, d);
+    }
+    #[tokio::test]
+    async fn fast_digest_large() {
+        let mut e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap();
+        let f = e.fast_digest().await.unwrap();
+        let d = e.digest().await.unwrap();
+        assert_ne!(f, d);
     }
 
     #[tokio::test]
