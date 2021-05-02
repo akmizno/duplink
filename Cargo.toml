@@ -12,7 +12,8 @@ license = "MIT/Apache-2.0"
 lto = true
 
 [dependencies]
-tokio = { version = "1", features = ["fs", "io-util", "io-std", "macros", "rt", "sync"] }
+tokio = { version = "1", features = ["fs", "io-util", "io-std", "macros", "rt-multi-thread", "sync"] }
+tokio-stream = "0.1"
 async-trait = "0.1"
 clap = "2"
 log = "0.4"
