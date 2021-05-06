@@ -1,11 +1,14 @@
 use std::path::Path;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use futures::stream::{Stream, StreamExt};
 use walkdir::WalkDir;
 use tokio::task;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_stream::StreamExt;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use log;
 use itertools::Itertools;
+use pin_project::pin_project;
 
 use super::entry::{Entry, Node, FileAttr};
 
@@ -53,10 +56,7 @@ fn make_entry_stream(wds: Vec<WalkDir>) -> mpsc::UnboundedReceiver<Entry> {
                 }
                 let entry = entry.unwrap();
 
-                let tx = tx.clone();
-                task::spawn(async move {
-                    tx.send(entry)
-                });
+                tx.send(entry).unwrap();
             }
         });
     }
@@ -107,45 +107,78 @@ async fn make_nodes(wds: Vec<WalkDir>) -> Vec<Node> {
 }
 
 
-pub struct NodesBuilder {
+#[pin_project]
+pub struct NodeStream {
+    #[pin]
+    inner: ReceiverStream<Node>,
+}
+
+impl NodeStream {
+    pub fn new(wds: Vec<WalkDir>) -> NodeStream {
+        // TODO
+        // Consider buffer size of channel
+        let (tx, rx) = mpsc::channel(256);
+
+        task::spawn(async move {
+            let nodes = make_nodes(wds).await;
+            for node in nodes {
+                tx.send(node).await.unwrap();
+            }
+        });
+
+        NodeStream{ inner: ReceiverStream::new(rx) }
+    }
+}
+
+impl Stream for NodeStream {
+    type Item = Node;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().inner.poll_next(cx)
+    }
+}
+
+pub struct NodeStreamBuilder {
     min_depth: Option<usize>,
     max_depth: Option<usize>,
     follow_links: bool,
 }
 
-impl NodesBuilder {
-    pub fn new() -> NodesBuilder {
-        NodesBuilder{ min_depth: None, max_depth: None, follow_links: true }
+impl NodeStreamBuilder {
+    pub fn new() -> NodeStreamBuilder {
+        NodeStreamBuilder{ min_depth: None, max_depth: None, follow_links: true }
     }
-    pub fn min_depth(mut self, depth: usize) -> NodesBuilder {
+    pub fn min_depth(mut self, depth: usize) -> NodeStreamBuilder {
         self.min_depth = Some(depth);
         self
     }
-    pub fn max_depth(mut self, depth: usize) -> NodesBuilder {
+    pub fn max_depth(mut self, depth: usize) -> NodeStreamBuilder {
         self.max_depth = Some(depth);
         self
     }
-    pub fn follow_links(mut self, f: bool) -> NodesBuilder {
+    pub fn follow_links(mut self, f: bool) -> NodeStreamBuilder {
         self.follow_links = f;
         self
     }
 
-    pub async fn build<P: AsRef<Path>>(self, roots: &[P]) -> Vec<Node> {
+    pub fn build<P: AsRef<Path>>(self, roots: &[P]) -> NodeStream {
         let wds = roots.iter()
             .map(|p| make_walkdir_single(p, self.min_depth, self.max_depth, self.follow_links))
             .collect_vec();
-        let nodes = make_nodes(wds).await;
 
-        nodes
+        NodeStream::new(wds)
     }
 }
+
 
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
     use itertools::Itertools;
     use super::super::entry::FileAttr;
-    use super::NodesBuilder;
+    use super::super::entry::Node;
+    use super::NodeStreamBuilder;
+    use futures::stream::StreamExt;
 
     fn canonical_path<P: AsRef<Path>>(p: P) -> PathBuf {
         p.as_ref().canonicalize().unwrap()
@@ -154,8 +187,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir() {
         let p = "files/small-uniques";
-        let paths = NodesBuilder::new()
-            .build(&[p]).await
+        let paths = NodeStreamBuilder::new()
+            .build(&[p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -168,8 +202,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_nonexist() {
         let p = "files/nonexist";
-        let paths = NodesBuilder::new()
-            .build(&[p]).await
+        let paths = NodeStreamBuilder::new()
+            .build(&[p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .collect_vec();
 
@@ -178,8 +213,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_multiple() {
         let p = "files/small-uniques";
-        let paths = NodesBuilder::new()
-            .build(&[p, p]).await
+        let paths = NodeStreamBuilder::new()
+            .build(&[p, p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -190,10 +226,31 @@ mod tests {
         assert!(paths.contains(&canonical_path("files/small-uniques/unique3")));
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn walk_dir_multiple2() {
+        let p1 = "files/small-uniques";
+        let p2 = "files/large-uniques";
+        let paths = NodeStreamBuilder::new()
+            .build(&[p1, p2])
+            .collect::<Vec<Node>>().await
+            .into_iter()
+            .map(|n| canonical_path(n.path()))
+            .collect_vec();
+
+        assert_eq!(paths.len(), 7);
+        assert!(paths.contains(&canonical_path("files/small-uniques/unique1")));
+        assert!(paths.contains(&canonical_path("files/small-uniques/unique2")));
+        assert!(paths.contains(&canonical_path("files/small-uniques/unique3")));
+        assert!(paths.contains(&canonical_path("files/large-uniques/fill_00_16k")));
+        assert!(paths.contains(&canonical_path("files/large-uniques/fill_00_32k")));
+        assert!(paths.contains(&canonical_path("files/large-uniques/fill_ff_16k")));
+        assert!(paths.contains(&canonical_path("files/large-uniques/fill_ff_32k")));
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_follow_links() {
         let p = "files/softlink-dir";
-        let paths = NodesBuilder::new()
-            .build(&[p]).await
+        let paths = NodeStreamBuilder::new()
+            .build(&[p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -205,9 +262,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_no_follow_links() {
         let p = "files/softlink-dir";
-        let paths = NodesBuilder::new()
+        let paths = NodeStreamBuilder::new()
             .follow_links(false)
-            .build(&[p]).await
+            .build(&[p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -218,9 +276,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_min_depth() {
         let p = "files/depth-uniques";
-        let paths = NodesBuilder::new()
+        let paths = NodeStreamBuilder::new()
             .min_depth(4)
-            .build(&[p]).await
+            .build(&[p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -231,9 +290,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_max_depth() {
         let p = "files/depth-uniques";
-        let paths = NodesBuilder::new()
+        let paths = NodeStreamBuilder::new()
             .max_depth(1)
-            .build(&[p]).await
+            .build(&[p])
+            .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();

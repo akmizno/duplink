@@ -24,6 +24,7 @@ fn have_all_same_dev(entries: &[Entry]) -> bool {
     entries[1..].iter().all(|e| e.dev() == dev)
 }
 
+#[derive(Debug)]
 pub enum Node {
     Single(Entry),
     Multi(Vec<Entry>),
