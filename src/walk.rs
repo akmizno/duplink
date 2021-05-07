@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+use tokio::io;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -10,7 +12,109 @@ use log;
 use itertools::Itertools;
 use pin_project::pin_project;
 
-use super::entry::{Entry, Node, FileAttr};
+use super::entry::{Entry, FileAttr, ContentEq, Digest};
+
+fn have_all_same_dev(entries: &[Entry]) -> bool {
+    if entries.len() < 2 {
+        return true;
+    }
+
+    let dev = entries[0].dev();
+    entries[1..].iter().all(|e| e.dev() == dev)
+}
+
+#[derive(Debug)]
+pub enum Node {
+    Single(Entry),
+    Multi(Vec<Entry>),
+}
+
+impl From<Entry> for Node {
+    fn from(entry: Entry) -> Self {
+        Node::Single(entry)
+    }
+}
+
+impl From<Vec<Entry>> for Node {
+    fn from(mut entries: Vec<Entry>) -> Self {
+        assert!(!entries.is_empty());
+        debug_assert!(have_all_same_dev(&entries));
+
+        if 1 == entries.len() {
+            Node::Single(entries.pop().unwrap())
+        } else {
+            Node::Multi(entries)
+        }
+    }
+}
+
+impl Node {
+    #[allow(dead_code)]
+    pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
+        let entry = Entry::from_path(p);
+        if let Err(e) = entry {
+            return Err(e);
+        }
+        match entry.unwrap() {
+            None => Ok(None),
+            Some(e) => Ok(Some(Node::from(e))),
+        }
+    }
+
+    fn entry(&self) -> &Entry {
+        match self {
+            Node::Single(e) => e,
+            Node::Multi(v) => unsafe {
+                debug_assert!(!v.is_empty());
+                v.get_unchecked(0)
+            },
+        }
+    }
+    fn entry_mut(&mut self) -> &mut Entry {
+        match self {
+            Node::Single(e) => e,
+            Node::Multi(v) => unsafe {
+                debug_assert!(!v.is_empty());
+                v.get_unchecked_mut(0)
+            },
+        }
+    }
+}
+
+impl FileAttr for Node {
+    fn path(&self) -> &Path {
+        self.entry().path()
+    }
+    fn size(&self) -> u64 {
+        self.entry().size()
+    }
+    fn dev(&self) -> Option<u64> {
+        self.entry().dev()
+    }
+    fn ino(&self) -> Option<u64> {
+        self.entry().ino()
+    }
+    fn readonly(&self) -> bool {
+        self.entry().readonly()
+    }
+}
+
+#[async_trait]
+impl Digest for Node {
+    async fn fast_digest(&mut self) -> io::Result<u64> {
+        self.entry_mut().fast_digest().await
+    }
+    async fn digest(&mut self) -> io::Result<u64> {
+        self.entry_mut().digest().await
+    }
+}
+
+#[async_trait]
+impl ContentEq for Node {
+    async fn eq_bytes(&self, other: &Self) -> io::Result<bool> {
+        self.entry().eq_bytes(&other.entry()).await
+    }
+}
 
 fn make_walkdir_single<P: AsRef<Path>>(
     root: P,
@@ -138,30 +242,30 @@ impl Stream for NodeStream {
     }
 }
 
-pub struct NodeStreamBuilder {
+pub struct Walker {
     min_depth: Option<usize>,
     max_depth: Option<usize>,
     follow_links: bool,
 }
 
-impl NodeStreamBuilder {
-    pub fn new() -> NodeStreamBuilder {
-        NodeStreamBuilder{ min_depth: None, max_depth: None, follow_links: true }
+impl Walker {
+    pub fn new() -> Walker {
+        Walker{ min_depth: None, max_depth: None, follow_links: true }
     }
-    pub fn min_depth(mut self, depth: usize) -> NodeStreamBuilder {
+    pub fn min_depth(mut self, depth: usize) -> Walker {
         self.min_depth = Some(depth);
         self
     }
-    pub fn max_depth(mut self, depth: usize) -> NodeStreamBuilder {
+    pub fn max_depth(mut self, depth: usize) -> Walker {
         self.max_depth = Some(depth);
         self
     }
-    pub fn follow_links(mut self, f: bool) -> NodeStreamBuilder {
+    pub fn follow_links(mut self, f: bool) -> Walker {
         self.follow_links = f;
         self
     }
 
-    pub fn build<P: AsRef<Path>>(self, roots: &[P]) -> NodeStream {
+    pub fn walk<P: AsRef<Path>>(self, roots: &[P]) -> NodeStream {
         let wds = roots.iter()
             .map(|p| make_walkdir_single(p, self.min_depth, self.max_depth, self.follow_links))
             .collect_vec();
@@ -175,20 +279,136 @@ impl NodeStreamBuilder {
 mod tests {
     use std::path::{Path, PathBuf};
     use itertools::Itertools;
-    use super::super::entry::FileAttr;
-    use super::super::entry::Node;
-    use super::NodeStreamBuilder;
     use futures::stream::StreamExt;
+
+    use crate::entry::{Entry, ContentEq, Digest, FileAttr};
+    use super::Node;
+    use super::Walker;
 
     fn canonical_path<P: AsRef<Path>>(p: P) -> PathBuf {
         p.as_ref().canonicalize().unwrap()
     }
 
+    #[test]
+    fn from_regular_path() {
+        let p = "files/softlink/original";
+        let n = Node::from_path(p).unwrap().unwrap();
+        assert_eq!(n.path().as_os_str(), p);
+        #[cfg(unix)]
+        assert!(n.size() == 9);
+        #[cfg(windows)]
+        assert!(n.size() == 10);
+        assert!(!n.readonly());
+    }
+    #[test]
+    fn from_link_path() {
+        let n = Node::from_path("files/softlink/original_link").unwrap();
+        assert!(n.is_none());
+    }
+    #[test]
+    fn from_dir_path() {
+        let n = Node::from_path("files/softlink").unwrap();
+        assert!(n.is_none());
+    }
+    #[test]
+    fn from_nonexist_path() {
+        let p = "files/nonexist-path";
+        let n = Node::from_path(p);
+        assert!(n.is_err());
+    }
+    #[test]
+    fn from_single_entry() {
+        let p = "files/softlink/original";
+        let e1 = Entry::from_path(p).unwrap().unwrap();
+        let e2 = Entry::from_path(p).unwrap().unwrap();
+        let n = Node::from(e1);
+        assert_eq!(n.path(), e2.path());
+        assert_eq!(n.size(), e2.size());
+        assert_eq!(n.readonly(), e2.readonly());
+        assert_eq!(n.dev(), e2.dev());
+        assert_eq!(n.ino(), e2.ino());
+    }
+    #[test]
+    fn from_multiple_entry() {
+        let p = "files/softlink/original";
+        let e1 = Entry::from_path(p).unwrap().unwrap();
+        let e2 = Entry::from_path(p).unwrap().unwrap();
+        let e3 = Entry::from_path(p).unwrap().unwrap();
+        let n = Node::from(vec![e1, e2]);
+        assert_eq!(n.path(), e3.path());
+        assert_eq!(n.size(), e3.size());
+        assert_eq!(n.readonly(), e3.readonly());
+        assert_eq!(n.dev(), e3.dev());
+        assert_eq!(n.ino(), e3.ino());
+    }
+    #[tokio::test]
+    async fn fast_digest_eq() {
+        let p = "files/softlink/original";
+        let mut e1 = Node::from_path(p).unwrap().unwrap();
+        let mut e2 = Node::from_path(p).unwrap().unwrap();
+        let d1 = e1.fast_digest().await.unwrap();
+        let d2 = e2.fast_digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn fast_digest_eq_multiple_time() {
+        let p = "files/softlink/original";
+        let mut e = Node::from_path(p).unwrap().unwrap();
+        let d1 = e.fast_digest().await.unwrap();
+        let d2 = e.fast_digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn fast_digest_ne() {
+        let mut e1 = Node::from_path("files/small-uniques/unique1").unwrap().unwrap();
+        let mut e2 = Node::from_path("files/small-uniques/unique2").unwrap().unwrap();
+        let d1 = e1.fast_digest().await.unwrap();
+        let d2 = e2.fast_digest().await.unwrap();
+        assert_ne!(d1, d2);
+    }
+    #[tokio::test]
+    async fn digest_eq() {
+        let p = "files/softlink/original";
+        let mut e1 = Node::from_path(p).unwrap().unwrap();
+        let mut e2 = Node::from_path(p).unwrap().unwrap();
+        let d1 = e1.digest().await.unwrap();
+        let d2 = e2.digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn digest_eq_multiple_time() {
+        let p = "files/softlink/original";
+        let mut e = Node::from_path(p).unwrap().unwrap();
+        let d1 = e.digest().await.unwrap();
+        let d2 = e.digest().await.unwrap();
+        assert_eq!(d1, d2);
+    }
+    #[tokio::test]
+    async fn digest_ne() {
+        let mut e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let mut e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let d1 = e1.digest().await.unwrap();
+        let d2 = e2.digest().await.unwrap();
+        assert_ne!(d1, d2);
+    }
+    #[tokio::test]
+    async fn bytes_eq() {
+        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        assert!(e1.eq_bytes(&e2).await.unwrap());
+    }
+    #[tokio::test]
+    async fn bytes_ne() {
+        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        assert!(!e1.eq_bytes(&e2).await.unwrap());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir() {
         let p = "files/small-uniques";
-        let paths = NodeStreamBuilder::new()
-            .build(&[p])
+        let paths = Walker::new()
+            .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
@@ -202,8 +422,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_nonexist() {
         let p = "files/nonexist";
-        let paths = NodeStreamBuilder::new()
-            .build(&[p])
+        let paths = Walker::new()
+            .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .collect_vec();
@@ -213,8 +433,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_multiple() {
         let p = "files/small-uniques";
-        let paths = NodeStreamBuilder::new()
-            .build(&[p, p])
+        let paths = Walker::new()
+            .walk(&[p, p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
@@ -234,8 +454,8 @@ mod tests {
     async fn walk_dir_multiple2() {
         let p1 = "files/small-uniques";
         let p2 = "files/large-uniques";
-        let paths = NodeStreamBuilder::new()
-            .build(&[p1, p2])
+        let paths = Walker::new()
+            .walk(&[p1, p2])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
@@ -253,8 +473,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_follow_links() {
         let p = "files/softlink-dir";
-        let paths = NodeStreamBuilder::new()
-            .build(&[p])
+        let paths = Walker::new()
+            .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
@@ -272,9 +492,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_no_follow_links() {
         let p = "files/softlink-dir";
-        let paths = NodeStreamBuilder::new()
+        let paths = Walker::new()
             .follow_links(false)
-            .build(&[p])
+            .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
@@ -286,9 +506,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_min_depth() {
         let p = "files/depth-uniques";
-        let paths = NodeStreamBuilder::new()
+        let paths = Walker::new()
             .min_depth(4)
-            .build(&[p])
+            .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
@@ -300,9 +520,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_max_depth() {
         let p = "files/depth-uniques";
-        let paths = NodeStreamBuilder::new()
+        let paths = Walker::new()
             .max_depth(1)
-            .build(&[p])
+            .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
             .map(|n| canonical_path(n.path()))
