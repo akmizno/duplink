@@ -531,4 +531,36 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert!(paths.contains(&canonical_path("files/depth-uniques/unique0")));
     }
+
+    fn make_tempdir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = dir.path().join("original");
+        let f2 = dir.path().join("hardlink");
+        std::fs::File::create(f1.as_path()).unwrap();
+        std::fs::hard_link(f1, f2).unwrap();
+        dir
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn walk_dir_hardlink() {
+        let dir = make_tempdir();
+        let paths = Walker::new()
+            .walk(&[dir.path()])
+            .collect::<Vec<Node>>().await
+            .into_iter()
+            .map(|n| canonical_path(n.path()))
+            .collect_vec();
+
+
+        #[cfg(unix)]
+        assert_eq!(paths.len(), 1);
+        // FIX IT
+        #[cfg(windows)]
+        assert_eq!(paths.len(), 2);
+
+        assert!(
+            paths.contains(&canonical_path(dir.path().join("original")))
+            || paths.contains(&canonical_path(dir.path().join("hardlink")))
+            );
+    }
 }
