@@ -8,5 +8,10 @@ mod unix;
 #[cfg(unix)]
 pub use unix::Entry;
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod win;
+#[cfg(windows)]
+pub use win::Entry;
+
+#[cfg(not(any(unix, windows)))]
 pub use generic::Entry;

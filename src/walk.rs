@@ -440,11 +440,7 @@ mod tests {
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
-        #[cfg(unix)]
         assert_eq!(paths.len(), 3);
-        // FIX IT
-        #[cfg(windows)]
-        assert_eq!(paths.len(), 6);
 
         assert!(paths.contains(&canonical_path("files/small-uniques/unique1")));
         assert!(paths.contains(&canonical_path("files/small-uniques/unique2")));
@@ -480,11 +476,7 @@ mod tests {
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
-        #[cfg(unix)]
         assert_eq!(paths.len(), 2);
-        // FIX IT
-        #[cfg(windows)]
-        assert_eq!(paths.len(), 4);
 
         assert!(paths.contains(&canonical_path("files/softlink-dir/dir/file")));
         assert!(paths.contains(&canonical_path("files/softlink/original")));
@@ -554,9 +546,6 @@ mod tests {
 
         #[cfg(unix)]
         assert_eq!(paths.len(), 1);
-        // FIX IT
-        #[cfg(windows)]
-        assert_eq!(paths.len(), 2);
 
         assert!(
             paths.contains(&canonical_path(dir.path().join("original")))
