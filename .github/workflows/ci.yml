@@ -21,7 +21,10 @@ jobs:
           - stable
           - beta
           - nightly
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            rust: nightly
 
     steps:
     - uses: actions/checkout@v2
