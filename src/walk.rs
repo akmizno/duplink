@@ -24,31 +24,29 @@ fn have_all_same_dev(entries: &[Entry]) -> bool {
 }
 
 #[derive(Debug)]
-pub enum Node {
-    Single(Entry),
-    Multi(Vec<Entry>),
+pub struct Node {
+    entries: Vec<Entry>,
 }
 
 impl From<Entry> for Node {
     fn from(entry: Entry) -> Self {
-        Node::Single(entry)
+        Node::new(vec![entry])
     }
 }
 
 impl From<Vec<Entry>> for Node {
-    fn from(mut entries: Vec<Entry>) -> Self {
-        assert!(!entries.is_empty());
-        debug_assert!(have_all_same_dev(&entries));
-
-        if 1 == entries.len() {
-            Node::Single(entries.pop().unwrap())
-        } else {
-            Node::Multi(entries)
-        }
+    fn from(entries: Vec<Entry>) -> Self {
+        Node::new(entries)
     }
 }
 
 impl Node {
+    pub fn new(entries: Vec<Entry>) -> Self {
+        assert!(!entries.is_empty());
+        debug_assert!(have_all_same_dev(&entries));
+        Node{entries}
+    }
+
     #[allow(dead_code)]
     pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
         let entry = Entry::from_path(p);
@@ -62,12 +60,9 @@ impl Node {
     }
 
     fn entry(&self) -> &Entry {
-        match self {
-            Node::Single(e) => e,
-            Node::Multi(v) => unsafe {
-                debug_assert!(!v.is_empty());
-                v.get_unchecked(0)
-            },
+        debug_assert!(!self.entries.is_empty());
+        unsafe {
+            self.entries.get_unchecked(0)
         }
     }
 }
