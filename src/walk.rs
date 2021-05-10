@@ -25,7 +25,7 @@ fn have_all_same_dev(entries: &[Entry]) -> bool {
 
 #[derive(Debug)]
 pub struct Node {
-    entries: Vec<Entry>,
+    entries: Box<Vec<Entry>>,
 }
 
 impl From<Entry> for Node {
@@ -44,7 +44,7 @@ impl Node {
     pub fn new(entries: Vec<Entry>) -> Self {
         assert!(!entries.is_empty());
         debug_assert!(have_all_same_dev(&entries));
-        Node{entries}
+        Node{ entries: Box::new(entries) }
     }
 
     #[allow(dead_code)]
