@@ -24,9 +24,6 @@ pub struct Entry {
     path: PathBuf,
     len: u64,
     readonly: bool,
-
-    fast_digest: Option<u64>,
-    digest: Option<u64>,
 }
 
 impl Entry {
@@ -70,8 +67,6 @@ impl Entry {
             path: PathBuf::from(p.as_ref()),
             len,
             readonly,
-            fast_digest: None,
-            digest: None,
         }
     }
 
@@ -114,31 +109,15 @@ impl FileAttr for Entry {
 
 #[async_trait]
 impl Digest for Entry {
-    async fn fast_digest(&mut self) -> io::Result<u64> {
+    async fn fast_digest(&self) -> io::Result<u64> {
         if self.size() as usize <= BUFSIZE {
             return self.digest().await;
         }
 
-        let d = match self.fast_digest {
-            Some(d) => d,
-            None => {
-                let d = self.calc_hash(BUFSIZE).await?;
-                self.fast_digest = Some(d);
-                d
-            }
-        };
-        Ok(d)
+        self.calc_hash(BUFSIZE).await
     }
-    async fn digest(&mut self) -> io::Result<u64> {
-        let d = match self.digest {
-            Some(d) => d,
-            None => {
-                let d = self.calc_hash(self.size() as usize).await?;
-                self.digest = Some(d);
-                d
-            }
-        };
-        Ok(d)
+    async fn digest(&self) -> io::Result<u64> {
+        self.calc_hash(self.size() as usize).await
     }
 }
 

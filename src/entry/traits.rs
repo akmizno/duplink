@@ -12,8 +12,8 @@ pub trait FileAttr {
 
 #[async_trait]
 pub trait Digest {
-    async fn fast_digest(&mut self) -> io::Result<u64>;
-    async fn digest(&mut self) -> io::Result<u64>;
+    async fn fast_digest(&self) -> io::Result<u64>;
+    async fn digest(&self) -> io::Result<u64>;
 }
 
 #[async_trait]

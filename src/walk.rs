@@ -70,15 +70,6 @@ impl Node {
             },
         }
     }
-    fn entry_mut(&mut self) -> &mut Entry {
-        match self {
-            Node::Single(e) => e,
-            Node::Multi(v) => unsafe {
-                debug_assert!(!v.is_empty());
-                v.get_unchecked_mut(0)
-            },
-        }
-    }
 }
 
 impl FileAttr for Node {
@@ -101,11 +92,11 @@ impl FileAttr for Node {
 
 #[async_trait]
 impl Digest for Node {
-    async fn fast_digest(&mut self) -> io::Result<u64> {
-        self.entry_mut().fast_digest().await
+    async fn fast_digest(&self) -> io::Result<u64> {
+        self.entry().fast_digest().await
     }
-    async fn digest(&mut self) -> io::Result<u64> {
-        self.entry_mut().digest().await
+    async fn digest(&self) -> io::Result<u64> {
+        self.entry().digest().await
     }
 }
 
@@ -344,8 +335,8 @@ mod tests {
     #[tokio::test]
     async fn fast_digest_eq() {
         let p = "files/softlink/original";
-        let mut e1 = Node::from_path(p).unwrap().unwrap();
-        let mut e2 = Node::from_path(p).unwrap().unwrap();
+        let e1 = Node::from_path(p).unwrap().unwrap();
+        let e2 = Node::from_path(p).unwrap().unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
@@ -353,15 +344,15 @@ mod tests {
     #[tokio::test]
     async fn fast_digest_eq_multiple_time() {
         let p = "files/softlink/original";
-        let mut e = Node::from_path(p).unwrap().unwrap();
+        let e = Node::from_path(p).unwrap().unwrap();
         let d1 = e.fast_digest().await.unwrap();
         let d2 = e.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
     }
     #[tokio::test]
     async fn fast_digest_ne() {
-        let mut e1 = Node::from_path("files/small-uniques/unique1").unwrap().unwrap();
-        let mut e2 = Node::from_path("files/small-uniques/unique2").unwrap().unwrap();
+        let e1 = Node::from_path("files/small-uniques/unique1").unwrap().unwrap();
+        let e2 = Node::from_path("files/small-uniques/unique2").unwrap().unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
@@ -369,8 +360,8 @@ mod tests {
     #[tokio::test]
     async fn digest_eq() {
         let p = "files/softlink/original";
-        let mut e1 = Node::from_path(p).unwrap().unwrap();
-        let mut e2 = Node::from_path(p).unwrap().unwrap();
+        let e1 = Node::from_path(p).unwrap().unwrap();
+        let e2 = Node::from_path(p).unwrap().unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_eq!(d1, d2);
@@ -378,15 +369,15 @@ mod tests {
     #[tokio::test]
     async fn digest_eq_multiple_time() {
         let p = "files/softlink/original";
-        let mut e = Node::from_path(p).unwrap().unwrap();
+        let e = Node::from_path(p).unwrap().unwrap();
         let d1 = e.digest().await.unwrap();
         let d2 = e.digest().await.unwrap();
         assert_eq!(d1, d2);
     }
     #[tokio::test]
     async fn digest_ne() {
-        let mut e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let mut e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
