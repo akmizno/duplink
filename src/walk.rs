@@ -228,25 +228,25 @@ impl Stream for NodeStream {
     }
 }
 
-pub struct Walker {
+pub struct DirWalker {
     min_depth: Option<usize>,
     max_depth: Option<usize>,
     follow_links: bool,
 }
 
-impl Walker {
-    pub fn new() -> Walker {
-        Walker{ min_depth: None, max_depth: None, follow_links: true }
+impl DirWalker {
+    pub fn new() -> DirWalker {
+        DirWalker{ min_depth: None, max_depth: None, follow_links: true }
     }
-    pub fn min_depth(mut self, depth: usize) -> Walker {
+    pub fn min_depth(mut self, depth: usize) -> DirWalker {
         self.min_depth = Some(depth);
         self
     }
-    pub fn max_depth(mut self, depth: usize) -> Walker {
+    pub fn max_depth(mut self, depth: usize) -> DirWalker {
         self.max_depth = Some(depth);
         self
     }
-    pub fn follow_links(mut self, f: bool) -> Walker {
+    pub fn follow_links(mut self, f: bool) -> DirWalker {
         self.follow_links = f;
         self
     }
@@ -269,7 +269,7 @@ mod tests {
 
     use crate::entry::{Entry, ContentEq, Digest, FileAttr};
     use super::Node;
-    use super::Walker;
+    use super::DirWalker;
 
     fn canonical_path<P: AsRef<Path>>(p: P) -> PathBuf {
         p.as_ref().canonicalize().unwrap()
@@ -393,7 +393,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir() {
         let p = "files/small-uniques";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
@@ -408,7 +408,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_nonexist() {
         let p = "files/nonexist";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
@@ -419,7 +419,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_multiple() {
         let p = "files/small-uniques";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .walk(&[p, p])
             .collect::<Vec<Node>>().await
             .into_iter()
@@ -436,7 +436,7 @@ mod tests {
     async fn walk_dir_multiple2() {
         let p1 = "files/small-uniques";
         let p2 = "files/large-uniques";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .walk(&[p1, p2])
             .collect::<Vec<Node>>().await
             .into_iter()
@@ -455,7 +455,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_follow_links() {
         let p = "files/softlink-dir";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
@@ -470,7 +470,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_no_follow_links() {
         let p = "files/softlink-dir";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .follow_links(false)
             .walk(&[p])
             .collect::<Vec<Node>>().await
@@ -484,7 +484,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_min_depth() {
         let p = "files/depth-uniques";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .min_depth(4)
             .walk(&[p])
             .collect::<Vec<Node>>().await
@@ -498,7 +498,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_max_depth() {
         let p = "files/depth-uniques";
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .max_depth(1)
             .walk(&[p])
             .collect::<Vec<Node>>().await
@@ -522,7 +522,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_hardlink() {
         let dir = make_tempdir();
-        let paths = Walker::new()
+        let paths = DirWalker::new()
             .walk(&[dir.path()])
             .collect::<Vec<Node>>().await
             .into_iter()
