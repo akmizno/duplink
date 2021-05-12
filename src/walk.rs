@@ -430,6 +430,7 @@ mod tests {
         assert!(paths.contains(&canonical_path("files/large-uniques/fill_ff_16k")));
         assert!(paths.contains(&canonical_path("files/large-uniques/fill_ff_32k")));
     }
+    // Disable on windows because symlinks can not be created by git clone.
     #[cfg(not(windows))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_follow_links() {
@@ -437,9 +438,6 @@ mod tests {
         let nodes = DirWalker::new()
             .walk(&[p])
             .collect::<Vec<Node>>().await;
-
-        println!("{:?}", nodes);
-
         let paths = nodes.into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
