@@ -1,16 +1,13 @@
 use async_trait::async_trait;
 use tokio::io;
 use std::path::Path;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use walkdir::WalkDir;
 use tokio::task;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use log;
 use itertools::Itertools;
-use pin_project::pin_project;
 
 use super::entry::{Entry, FileAttr, ContentEq, Digest};
 
@@ -28,35 +25,31 @@ pub struct Node {
     entries: Box<Vec<Entry>>,
 }
 
-impl From<Entry> for Node {
-    fn from(entry: Entry) -> Self {
-        Node::new(vec![entry])
-    }
-}
-
-impl From<Vec<Entry>> for Node {
-    fn from(entries: Vec<Entry>) -> Self {
-        Node::new(entries)
-    }
-}
-
 impl Node {
-    pub fn new(entries: Vec<Entry>) -> Self {
+    fn new(entries: Vec<Entry>) -> Self {
         assert!(!entries.is_empty());
         debug_assert!(have_all_same_dev(&entries));
         Node{ entries: Box::new(entries) }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
+    fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
         let entry = Entry::from_path(p);
         if let Err(e) = entry {
             return Err(e);
         }
         match entry.unwrap() {
             None => Ok(None),
-            Some(e) => Ok(Some(Node::from(e))),
+            Some(e) => Ok(Some(Node::from_entry(e))),
         }
+    }
+
+    fn from_entry(entry: Entry) -> Self {
+        Node::new(vec![entry])
+    }
+
+    fn from_entries(entries: Vec<Entry>) -> Self {
+        Node::new(entries)
     }
 
     fn entry(&self) -> &Entry {
@@ -122,7 +115,7 @@ fn make_walkdir_single<P: AsRef<Path>>(
     w
 }
 
-fn make_entry_stream(wds: Vec<WalkDir>) -> mpsc::UnboundedReceiver<Entry> {
+fn into_entry_stream(wds: Vec<WalkDir>) -> mpsc::UnboundedReceiver<Entry> {
     let (tx, rx) = mpsc::unbounded_channel();
 
     for wd in wds.into_iter() {
@@ -180,53 +173,19 @@ impl PartialEq for DevInoCmp {
 impl Eq for DevInoCmp {}
 
 
-async fn make_nodes(wds: Vec<WalkDir>) -> Vec<Node> {
-    let rx = make_entry_stream(wds);
-    let entries: Vec<Entry> = UnboundedReceiverStream::new(rx).collect().await;
-    let nodes = task::block_in_place(
-        || entries.into_iter()
+fn entries2nodes(entries: Vec<Entry>) -> Vec<Node> {
+    entries.into_iter()
         .sorted_by_key(|e| DevInoCmp::new(&e))
         .group_by(|e| DevInoCmp::new(&e))
         .into_iter()
         .map(|(_, g)| g.collect_vec())
-        .map(|g| Node::from(g))
+        .map(|g| Node::from_entries(g))
         .collect_vec()
-    );
-
-    nodes
 }
 
 
-#[pin_project]
-pub struct NodeStream {
-    #[pin]
-    inner: ReceiverStream<Node>,
-}
+pub type NodeStream = ReceiverStream<Node>;
 
-impl NodeStream {
-    pub fn new(wds: Vec<WalkDir>) -> NodeStream {
-        // TODO
-        // Consider buffer size of channel
-        let (tx, rx) = mpsc::channel(256);
-
-        task::spawn(async move {
-            let nodes = make_nodes(wds).await;
-            for node in nodes {
-                tx.send(node).await.unwrap();
-            }
-        });
-
-        NodeStream{ inner: ReceiverStream::new(rx) }
-    }
-}
-
-impl Stream for NodeStream {
-    type Item = Node;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().inner.poll_next(cx)
-    }
-}
 
 pub struct DirWalker {
     min_depth: Option<usize>,
@@ -256,7 +215,23 @@ impl DirWalker {
             .map(|p| make_walkdir_single(p, self.min_depth, self.max_depth, self.follow_links))
             .collect_vec();
 
-        NodeStream::new(wds)
+        let (tx, rx) = mpsc::channel(512);
+
+        task::spawn(async move {
+            let entries = into_entry_stream(wds);
+            let entries: Vec<Entry> = UnboundedReceiverStream::new(entries).collect().await;
+
+            let nodes = task::block_in_place(|| entries2nodes(entries));
+
+            for node in nodes.into_iter() {
+                let tx = tx.clone();
+                task::spawn(async move {
+                    tx.send(node).await.unwrap();
+                });
+            }
+        });
+
+        NodeStream::new(rx)
     }
 }
 
@@ -307,7 +282,7 @@ mod tests {
         let p = "files/softlink/original";
         let e1 = Entry::from_path(p).unwrap().unwrap();
         let e2 = Entry::from_path(p).unwrap().unwrap();
-        let n = Node::from(e1);
+        let n = Node::from_entry(e1);
         assert_eq!(n.path(), e2.path());
         assert_eq!(n.size(), e2.size());
         assert_eq!(n.readonly(), e2.readonly());
@@ -320,7 +295,7 @@ mod tests {
         let e1 = Entry::from_path(p).unwrap().unwrap();
         let e2 = Entry::from_path(p).unwrap().unwrap();
         let e3 = Entry::from_path(p).unwrap().unwrap();
-        let n = Node::from(vec![e1, e2]);
+        let n = Node::from_entries(vec![e1, e2]);
         assert_eq!(n.path(), e3.path());
         assert_eq!(n.size(), e3.size());
         assert_eq!(n.readonly(), e3.readonly());
