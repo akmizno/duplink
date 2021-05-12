@@ -123,7 +123,7 @@ impl Digest for Entry {
 
 #[async_trait]
 impl ContentEq for Entry {
-    async fn eq_bytes(&self, other: &Self) -> io::Result<bool> {
+    async fn eq_content(&self, other: &Self) -> io::Result<bool> {
         if self.size() != other.size() {
             return Ok(false);
         }
@@ -252,15 +252,15 @@ mod tests {
         assert_ne!(d1, d2);
     }
     #[tokio::test]
-    async fn bytes_eq() {
+    async fn content_eq() {
         let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         let e2 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        assert!(e1.eq_bytes(&e2).await.unwrap());
+        assert!(e1.eq_content(&e2).await.unwrap());
     }
     #[tokio::test]
-    async fn bytes_ne() {
+    async fn content_ne() {
         let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
-        assert!(!e1.eq_bytes(&e2).await.unwrap());
+        assert!(!e1.eq_content(&e2).await.unwrap());
     }
 }

@@ -18,5 +18,5 @@ pub trait Digest {
 
 #[async_trait]
 pub trait ContentEq {
-    async fn eq_bytes(&self, other: &Self) -> io::Result<bool>;
+    async fn eq_content(&self, other: &Self) -> io::Result<bool>;
 }
