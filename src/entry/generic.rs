@@ -19,7 +19,7 @@ fn make_buffer() -> Box<[u8]> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Entry {
     path: PathBuf,
     len: u64,

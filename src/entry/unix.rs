@@ -8,7 +8,7 @@ use std::os::unix::fs::MetadataExt;
 use super::generic;
 use super::{ContentEq, Digest, FileAttr};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Entry {
     entry: generic::Entry,
     dev: u64,
