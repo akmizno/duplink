@@ -394,10 +394,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_multiple() {
         let p = "files/small-uniques";
-        let paths = DirWalker::new()
+        let nodes = DirWalker::new()
             .walk(&[p, p])
-            .collect::<Vec<Node>>().await
-            .into_iter()
+            .collect::<Vec<Node>>().await;
+
+        println!("{:?}", nodes);
+
+        let paths = nodes.into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
@@ -427,13 +430,17 @@ mod tests {
         assert!(paths.contains(&canonical_path("files/large-uniques/fill_ff_16k")));
         assert!(paths.contains(&canonical_path("files/large-uniques/fill_ff_32k")));
     }
+    #[cfg(not(windows))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_follow_links() {
         let p = "files/softlink-dir";
-        let paths = DirWalker::new()
+        let nodes = DirWalker::new()
             .walk(&[p])
-            .collect::<Vec<Node>>().await
-            .into_iter()
+            .collect::<Vec<Node>>().await;
+
+        println!("{:?}", nodes);
+
+        let paths = nodes.into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
