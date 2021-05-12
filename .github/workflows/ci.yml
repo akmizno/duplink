@@ -38,5 +38,5 @@ jobs:
     - name: Build
       run: cargo build
     - name: Run tests
-      run: cargo test
+      run: cargo test -- --show-output
       continue-on-error: ${{ matrix.rust == 'nightly' }}
