@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn from_link_path() {
         let n = Node::from_path("files/softlink/original_link").unwrap();
-        assert!(n.is_none());
+        assert!(n.is_some());
     }
     #[test]
     fn from_dir_path() {

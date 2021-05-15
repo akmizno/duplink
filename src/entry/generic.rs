@@ -31,7 +31,7 @@ impl Entry {
     pub fn from_path<P: AsRef<Path>>(p: P) -> io::Result<Option<Self>> {
         let path = p.as_ref();
 
-        let meta = path.symlink_metadata();
+        let meta = path.metadata();
         if let Err(e) = meta {
             return Err(e);
         }
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn from_link_path() {
         let e = Entry::from_path("files/softlink/original_link").unwrap();
-        assert!(e.is_none());
+        assert!(e.is_some());
     }
     #[test]
     fn from_dir_path() {
