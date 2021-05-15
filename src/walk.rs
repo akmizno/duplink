@@ -398,7 +398,7 @@ mod tests {
             .walk(&[p, p])
             .collect::<Vec<Node>>().await;
 
-        println!("{:?}", nodes);
+        // println!("{:?}", nodes);
 
         let paths = nodes.into_iter()
             .map(|n| canonical_path(n.path()))
