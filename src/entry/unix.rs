@@ -89,8 +89,8 @@ impl Digest for Entry {
 
 #[async_trait]
 impl ContentEq for Entry {
-    async fn eq_content(&self, other: &Self) -> io::Result<bool> {
-        self.entry.eq_content(&other.entry).await
+    async fn eq_content_path(&self, path: &Path) -> io::Result<bool> {
+        self.entry.eq_content(path).await
     }
 }
 
@@ -179,14 +179,14 @@ mod tests {
     }
     #[tokio::test]
     async fn content_eq() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        assert!(e1.eq_content(&e2).await.unwrap());
+        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let p = "files/large-uniques/fill_00_16k";
+        assert!(e.eq_content(p).await.unwrap());
     }
     #[tokio::test]
     async fn content_ne() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
-        assert!(!e1.eq_content(&e2).await.unwrap());
+        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let p = "files/large-uniques/fill_ff_16k";
+        assert!(!e.eq_content(p).await.unwrap());
     }
 }

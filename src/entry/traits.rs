@@ -18,5 +18,8 @@ pub trait Digest {
 
 #[async_trait]
 pub trait ContentEq {
-    async fn eq_content(&self, other: &Self) -> io::Result<bool>;
+    async fn eq_content_path(&self, path: &Path) -> io::Result<bool>;
+    async fn eq_content<P: AsRef<Path> + Send + Sync>(&self, path: P) -> io::Result<bool> {
+        self.eq_content_path(path.as_ref()).await
+    }
 }

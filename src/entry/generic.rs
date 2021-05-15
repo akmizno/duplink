@@ -123,13 +123,9 @@ impl Digest for Entry {
 
 #[async_trait]
 impl ContentEq for Entry {
-    async fn eq_content(&self, other: &Self) -> io::Result<bool> {
-        if self.size() != other.size() {
-            return Ok(false);
-        }
-
+    async fn eq_content_path(&self, path: &Path) -> io::Result<bool> {
         let f1 = File::open(self.path()).await?;
-        let f2 = File::open(other.path()).await?;
+        let f2 = File::open(path).await?;
         let mut reader1 = BufReader::new(f1);
         let mut reader2 = BufReader::new(f2);
 
@@ -253,14 +249,14 @@ mod tests {
     }
     #[tokio::test]
     async fn content_eq() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        assert!(e1.eq_content(&e2).await.unwrap());
+        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let p = "files/large-uniques/fill_00_16k";
+        assert!(e.eq_content(p).await.unwrap());
     }
     #[tokio::test]
     async fn content_ne() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
-        assert!(!e1.eq_content(&e2).await.unwrap());
+        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let p = "files/large-uniques/fill_ff_16k";
+        assert!(!e.eq_content(p).await.unwrap());
     }
 }
