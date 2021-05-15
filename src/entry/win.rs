@@ -37,26 +37,9 @@ impl Entry {
     }
 
     pub(crate) fn from_direntry(d: DirEntry) -> io::Result<Option<Self>> {
-        let meta = d.metadata();
-        if let walkdir::Result::Err(we) = meta {
-            match we.into_io_error() {
-                None => return Ok(None),
-                Some(e) => return Err(e)
-            }
-        }
-        let meta = meta.unwrap();
-
-        if !meta.is_file() {
-            return Ok(None);
-        }
-
-        let entry = generic::Entry::new(d.path(), meta.len(), meta.permissions().readonly());
-
-        Ok(Some(Entry {
-            entry,
-            vol: meta.volume_serial_number(),
-            idx: meta.file_index(),
-        }))
+        // Call Self::from_path() because
+        // DirEntry can not create Metadata which returns valid values from volume_serial_number() and file_index().
+        Entry::from_path(d.path())
     }
 }
 impl FileAttr for Entry {
