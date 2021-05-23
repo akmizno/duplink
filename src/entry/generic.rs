@@ -71,11 +71,15 @@ impl Entry {
     }
 
     async fn calc_hash(&self, size: usize) -> io::Result<u64> {
+        let mut h: XxHash64 = Default::default();
+        if size == 0 {
+            return Ok(h.finish());
+        }
+
         let f = File::open(self.path()).await?;
         let mut reader = BufReader::new(f);
         let mut buffer = make_buffer();
 
-        let mut h: XxHash64 = Default::default();
         let mut size_count = 0;
         while size_count < size {
             let n = reader.read(&mut buffer[..]).await?;
