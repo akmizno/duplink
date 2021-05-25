@@ -6,6 +6,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
+use itertools::Itertools;
 use log;
 
 use super::entry::{FileAttr, Digest, ContentEq};
@@ -207,7 +208,11 @@ fn find_dupes_by_digest_impl(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sende
     });
 }
 
-fn find_dupes_by_digest(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_digest_small(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    find_dupes_by_digest_impl(nodes, sem, dupes, uniqs);
+}
+
+fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     let (fast_dupes_tx, mut fast_dupes_rx) = mpsc::channel(nodes.len());
 
     find_dupes_by_fast_digest_impl(nodes, sem.clone(), fast_dupes_tx, uniqs.clone());
@@ -326,7 +331,13 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large: Arc<S
 
         task::spawn(async move {
             while let Some(nodes) = size_dupes.recv().await {
-                find_dupes_by_digest(nodes, sem.clone(), digest_dupes_tx.clone(), uniqs.clone());
+                debug_assert!(0 < nodes.len());
+                debug_assert!(nodes.iter().map(Node::size).all_equal());
+                if THRESHOLD < nodes[0].size() {
+                    find_dupes_by_digest_large(nodes, sem.clone(), digest_dupes_tx.clone(), uniqs.clone());
+                } else {
+                    find_dupes_by_digest_small(nodes, sem.clone(), digest_dupes_tx.clone(), uniqs.clone());
+                }
             }
         });
 
