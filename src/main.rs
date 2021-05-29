@@ -1,3 +1,52 @@
-fn main() {
+#![cfg_attr(windows, feature(windows_by_handle))]
+use std::path::PathBuf;
+use tokio_stream::StreamExt;
+use clap::value_t_or_exit;
+use clap::{Arg, App, ArgGroup, crate_version, AppSettings};
+use itertools::Itertools;
+
+pub mod entry;
+pub mod walk;
+pub mod find;
+pub(crate) mod util;
+pub mod api;
+
+use entry::FileAttr;
+
+#[tokio::main]
+async fn main() {
+    let matches = App::new("duplink")
+        .setting(AppSettings::ColoredHelp)
+        .author("Akira MIZUNO, akmizno@gmail.com")
+        .version(crate_version!())
+        .about("A tool for finding duplicate files and de-duplicating them.")
+        // .after_help(console::extra_doc().as_ref())
+
+        .arg(Arg::with_name("PATH")
+            .multiple(true)
+            .takes_value(true)
+            .required(true)
+            .help("Directories or files to be searched")
+        )
+        .get_matches();
+
+    let paths: Vec<PathBuf> = matches.values_of("PATH").unwrap()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect_vec();
+
+    let (sem_small, sem_large) = util::semaphore::SemaphoreBuilder::new().large_concurrency(Some(2)).build();
+    let duplink = api::DupLink::new(sem_small, sem_large);
+    let nodes = walk::DirWalker::new()
+        .walk(&paths)
+        .collect().await;
+    let (mut dupes, uniqs) = duplink.find_dupes(nodes);
+
+    while let Some(dup_nodes) = dupes.next().await {
+        for node in dup_nodes {
+            println!("{}", node.path().display());
+        }
+        println!("");
+    }
     println!("Hello, world!");
 }

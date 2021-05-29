@@ -3,3 +3,5 @@ pub mod entry;
 pub mod walk;
 pub mod find;
 pub(crate) mod util;
+
+pub mod api;

@@ -1,5 +1,4 @@
 use tokio::task;
-// use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
@@ -20,6 +19,10 @@ fn group_by_dev(nodes: Vec<Node>) -> Vec<Vec<Node>> {
 }
 
 fn find_dupes_by_dev(nodes: Vec<Node>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     task::spawn(async move {
         let mut some_nodes = Vec::new();
         for node in nodes.into_iter() {
@@ -74,6 +77,10 @@ fn split_zeros(nodes: Vec<Node>) -> (Vec<Node>, Vec<Node>) {
 }
 
 fn find_dupes_by_size(nodes: Vec<Node>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     task::spawn(async move{
         let nodes = {
             let dupes = dupes.clone();
@@ -167,6 +174,10 @@ async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
 }
 
 fn find_dupes_by_fast_digest_impl(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     task::spawn(async move{
         let groups = group_by_fast_digest(nodes, sem).await;
 
@@ -188,6 +199,10 @@ fn find_dupes_by_fast_digest_impl(nodes: Vec<Node>, sem: Semaphore, dupes: Sende
 }
 
 fn find_dupes_by_digest_impl(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     task::spawn(async move{
         let groups = group_by_digest(nodes, sem).await;
 
@@ -213,6 +228,10 @@ fn find_dupes_by_digest_small(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Ve
 }
 
 fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     let (fast_dupes_tx, mut fast_dupes_rx) = mpsc::channel(nodes.len());
 
     find_dupes_by_fast_digest_impl(nodes, sem.clone(), fast_dupes_tx, uniqs.clone());
@@ -231,6 +250,8 @@ fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Ve
 
 
 async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Semaphore) -> (Vec<Node>, Vec<Node>) {
+    debug_assert!(0 < nodes.len());
+
     let (eq_rx, ne_rx) = {
         let (eq_tx, eq_rx) = mpsc::channel(nodes.len());
         let (ne_tx, ne_rx) = mpsc::channel(nodes.len());
@@ -250,9 +271,8 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Sem
                     log::error!("{}", eq.unwrap_err());
                     return;
                 }
-                let eq = eq.unwrap();
 
-                if eq {
+                if eq.unwrap() {
                     eq_tx.send(node).await.unwrap();
                 } else {
                     ne_tx.send(node).await.unwrap();
@@ -269,7 +289,9 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Sem
 }
 
 async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore) -> Vec<Vec<Node>> {
-    debug_assert!(1 < nodes.len());
+    if nodes.len() == 0 {
+        return Vec::new();
+    }
 
     let mut groups = Vec::new();
 
@@ -294,6 +316,17 @@ async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large:
 }
 
 fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+    if nodes.len() == 1 {
+        task::spawn(async move {
+            let mut nodes = nodes;
+            uniqs.send(nodes.pop().unwrap()).await.unwrap();
+        });
+        return;
+    }
+
     task::spawn(async move{
         let groups = group_by_content(nodes, sem_small, sem_large).await;
 
@@ -315,6 +348,10 @@ fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Sema
 }
 
 fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     let channel_size = nodes.len();
 
     let mut size_dupes = {
@@ -351,6 +388,10 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore,
     });
 }
 pub(crate) fn find_dupes(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>, ignore_dev: bool) {
+    if nodes.len() == 0 {
+        return;
+    }
+
     if ignore_dev {
         find_dupes_core(nodes, sem_small, sem_large, dupes, uniqs);
     } else {
