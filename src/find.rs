@@ -1,10 +1,9 @@
 use tokio::task;
-use tokio::sync::Semaphore;
+// use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use itertools::Itertools;
 use log;
@@ -12,6 +11,7 @@ use log;
 use super::entry::{FileAttr, Digest, ContentEq};
 use super::walk::Node;
 use super::util::{group_by_key_map, group_by_key};
+use super::util::semaphore::Semaphore;
 
 const THRESHOLD: u64 = 8192;
 
@@ -114,7 +114,7 @@ fn find_dupes_by_size(nodes: Vec<Node>, dupes: Sender<Vec<Node>>, uniqs: Sender<
 }
 
 
-async fn group_by_fast_digest(nodes: Vec<Node>, sem: Arc<Semaphore>) -> Vec<Vec<Node>> {
+async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
     if nodes.len() == 0 {
         return Vec::new();
     }
@@ -141,7 +141,7 @@ async fn group_by_fast_digest(nodes: Vec<Node>, sem: Arc<Semaphore>) -> Vec<Vec<
     task::block_in_place(|| group_by_key_map(dn, |&(d, _)| d, |(_, n)| n))
 }
 
-async fn group_by_digest(nodes: Vec<Node>, sem: Arc<Semaphore>) -> Vec<Vec<Node>> {
+async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
     if nodes.len() == 0 {
         return Vec::new();
     }
@@ -166,7 +166,7 @@ async fn group_by_digest(nodes: Vec<Node>, sem: Arc<Semaphore>) -> Vec<Vec<Node>
     task::block_in_place(|| group_by_key_map(dn, |&(d, _)| d, |(_, n)| n))
 }
 
-fn find_dupes_by_fast_digest_impl(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_fast_digest_impl(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     task::spawn(async move{
         let groups = group_by_fast_digest(nodes, sem).await;
 
@@ -187,7 +187,7 @@ fn find_dupes_by_fast_digest_impl(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: 
     });
 }
 
-fn find_dupes_by_digest_impl(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_digest_impl(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     task::spawn(async move{
         let groups = group_by_digest(nodes, sem).await;
 
@@ -208,11 +208,11 @@ fn find_dupes_by_digest_impl(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sende
     });
 }
 
-fn find_dupes_by_digest_small(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_digest_small(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     find_dupes_by_digest_impl(nodes, sem, dupes, uniqs);
 }
 
-fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     let (fast_dupes_tx, mut fast_dupes_rx) = mpsc::channel(nodes.len());
 
     find_dupes_by_fast_digest_impl(nodes, sem.clone(), fast_dupes_tx, uniqs.clone());
@@ -230,7 +230,7 @@ fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Arc<Semaphore>, dupes: Send
 }
 
 
-async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Arc<Semaphore>) -> (Vec<Node>, Vec<Node>) {
+async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Semaphore) -> (Vec<Node>, Vec<Node>) {
     let (eq_rx, ne_rx) = {
         let (eq_tx, eq_rx) = mpsc::channel(nodes.len());
         let (ne_tx, ne_rx) = mpsc::channel(nodes.len());
@@ -268,7 +268,7 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Arc
     (eqs, nes)
 }
 
-async fn group_by_content(mut nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large: Arc<Semaphore>) -> Vec<Vec<Node>> {
+async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore) -> Vec<Vec<Node>> {
     debug_assert!(1 < nodes.len());
 
     let mut groups = Vec::new();
@@ -293,7 +293,7 @@ async fn group_by_content(mut nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_l
     groups
 }
 
-fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     task::spawn(async move{
         let groups = group_by_content(nodes, sem_small, sem_large).await;
 
@@ -314,7 +314,7 @@ fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large:
     });
 }
 
-fn find_dupes_core(nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     let channel_size = nodes.len();
 
     let mut size_dupes = {
@@ -350,7 +350,7 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large: Arc<S
         }
     });
 }
-pub(crate) fn find_dupes(nodes: Vec<Node>, sem_small: Arc<Semaphore>, sem_large: Arc<Semaphore>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>, ignore_dev: bool) {
+pub(crate) fn find_dupes(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>, ignore_dev: bool) {
     if ignore_dev {
         find_dupes_core(nodes, sem_small, sem_large, dupes, uniqs);
     } else {
@@ -380,6 +380,15 @@ mod tests {
     use super::super::walk::{DirWalker, Node};
     use super::*;
 
+    use super::super::util::semaphore::{SemaphoreBuilder, SmallSemaphore, LargeSemaphore};
+
+    fn new_semaphore() -> (SmallSemaphore, LargeSemaphore) {
+        SemaphoreBuilder::new()
+            .max_concurrency(Some(2))
+            .large_concurrency(Some(2))
+            .build()
+    }
+
     async fn collect_nodes<P: AsRef<Path>>(paths: &[P]) -> Vec<Node> {
         DirWalker::new()
             .walk(paths)
@@ -393,8 +402,7 @@ mod tests {
 
         let (dupes_tx, dupes_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
-        let sem_small = Arc::new(Semaphore::new(2));
-        let sem_large = Arc::new(Semaphore::new(2));
+        let (sem_small, sem_large) = new_semaphore();
 
         find_dupes(nodes, sem_small, sem_large, dupes_tx, uniqs_tx, false);
 
@@ -413,8 +421,7 @@ mod tests {
 
         let (dupes_tx, dupes_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
-        let sem_small = Arc::new(Semaphore::new(2));
-        let sem_large = Arc::new(Semaphore::new(2));
+        let (sem_small, sem_large) = new_semaphore();
 
         find_dupes(nodes, sem_small, sem_large, dupes_tx, uniqs_tx, false);
 
@@ -431,8 +438,7 @@ mod tests {
 
         let (dupes_tx, dupes_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
-        let sem_small = Arc::new(Semaphore::new(2));
-        let sem_large = Arc::new(Semaphore::new(2));
+        let (sem_small, sem_large) = new_semaphore();
 
         find_dupes(nodes, sem_small, sem_large, dupes_tx, uniqs_tx, false);
 
@@ -449,8 +455,7 @@ mod tests {
 
         let (dupes_tx, dupes_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
-        let sem_small = Arc::new(Semaphore::new(2));
-        let sem_large = Arc::new(Semaphore::new(2));
+        let (sem_small, sem_large) = new_semaphore();
 
         find_dupes(nodes, sem_small, sem_large, dupes_tx, uniqs_tx, false);
 
@@ -469,8 +474,7 @@ mod tests {
 
         let (dupes_tx, dupes_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
-        let sem_small = Arc::new(Semaphore::new(2));
-        let sem_large = Arc::new(Semaphore::new(2));
+        let (sem_small, sem_large) = new_semaphore();
 
         find_dupes(nodes, sem_small, sem_large, dupes_tx, uniqs_tx, false);
 
