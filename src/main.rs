@@ -5,6 +5,9 @@ use clap::value_t_or_exit;
 use clap::{Arg, App, ArgGroup, crate_version, AppSettings};
 use itertools::Itertools;
 
+use std::io::{stdout, Write};
+use std::io::BufWriter;
+
 pub mod entry;
 pub mod walk;
 pub mod find;
@@ -35,18 +38,20 @@ async fn main() {
         .map(PathBuf::from)
         .collect_vec();
 
-    let (sem_small, sem_large) = util::semaphore::SemaphoreBuilder::new().large_concurrency(Some(2)).build();
+    let (sem_small, sem_large) = util::semaphore::SemaphoreBuilder::new().large_concurrency(false).build();
     let duplink = api::DupLink::new(sem_small, sem_large);
     let nodes = walk::DirWalker::new()
         .walk(&paths)
         .collect().await;
     let (mut dupes, uniqs) = duplink.find_dupes(nodes);
 
+    let stdout = stdout();
+    let mut out = BufWriter::new(stdout.lock());
     while let Some(dup_nodes) = dupes.next().await {
         for node in dup_nodes {
-            println!("{}", node.path().display());
+            writeln!(out, "{}", node.path().display()).unwrap();
         }
-        println!("");
+        writeln!(out, "").unwrap();
     }
-    println!("Hello, world!");
+    // println!("Hello, world!");
 }
