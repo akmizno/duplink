@@ -175,7 +175,7 @@ impl Eq for DevInoCmp {}
 
 fn entries2nodes(entries: Vec<Entry>) -> Vec<Node> {
     entries.into_iter()
-        .sorted_by_key(|e| DevInoCmp::new(&e))
+        .sorted_unstable_by_key(|e| DevInoCmp::new(&e))
         .group_by(|e| DevInoCmp::new(&e))
         .into_iter()
         .map(|(_, g)| g.collect_vec())

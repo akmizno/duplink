@@ -14,7 +14,7 @@ where
     }
 
     items.into_iter()
-        .sorted_by_key(|i| cmp(i))
+        .sorted_unstable_by_key(|i| cmp(i))
         .group_by(|i| cmp(i))
         .into_iter()
         .map(|(_, g)| g.map(|i| mapper(i)).collect_vec())
