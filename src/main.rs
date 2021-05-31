@@ -5,8 +5,9 @@ use clap::value_t_or_exit;
 use clap::{Arg, App, ArgGroup, crate_version, AppSettings};
 use itertools::Itertools;
 
-use std::io::{stdout, Write};
-use std::io::BufWriter;
+use tokio::io::{self, AsyncWriteExt};
+// use std::io::{stdout, Write};
+// use std::io::BufWriter;
 
 pub mod entry;
 pub mod walk;
@@ -45,13 +46,12 @@ async fn main() {
         .collect().await;
     let (mut dupes, uniqs) = duplink.find_dupes(nodes);
 
-    let stdout = stdout();
-    let mut out = BufWriter::new(stdout.lock());
+    let mut out = io::stdout();
     while let Some(dup_nodes) = dupes.next().await {
         for node in dup_nodes {
-            writeln!(out, "{}", node.path().display()).unwrap();
+            out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
         }
-        writeln!(out, "").unwrap();
+        out.write("\n".as_bytes()).await.unwrap();
     }
     // println!("Hello, world!");
 }
