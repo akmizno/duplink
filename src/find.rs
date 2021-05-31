@@ -4,6 +4,8 @@ use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry::{Vacant, Occupied};
 use itertools::Itertools;
 use log;
 
@@ -14,66 +16,8 @@ use super::util::semaphore::Semaphore;
 
 const THRESHOLD: u64 = 8192;
 
-fn group_by_dev(nodes: Vec<Node>) -> Vec<Vec<Node>> {
-    group_by_key(nodes, |n| n.dev().unwrap())
-}
-
-fn find_dupes_by_dev(nodes: Vec<Node>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
-    if nodes.len() == 0 {
-        return;
-    }
-
-    task::spawn(async move {
-        let mut some_nodes = Vec::new();
-        for node in nodes.into_iter() {
-            if node.dev().is_none() {
-                // Exclude if dev() can not return Some.
-                let uniqs = uniqs.clone();
-                task::spawn(async move {
-                    uniqs.send(node).await.unwrap();
-                });
-            } else {
-                some_nodes.push(node);
-            }
-        }
-
-        let groups = task::block_in_place(|| group_by_dev(some_nodes));
-
-        for mut group in groups.into_iter() {
-            debug_assert!(0 < group.len());
-            if group.len() == 1 {
-                let uniqs = uniqs.clone();
-                task::spawn(async move {
-                    uniqs.send(group.pop().unwrap()).await.unwrap();
-                });
-            } else {
-                let dupes = dupes.clone();
-                task::spawn(async move {
-                    dupes.send(group).await.unwrap();
-                });
-            }
-        }
-    });
-}
-
-
 fn group_by_size(nodes: Vec<Node>) -> Vec<Vec<Node>> {
     group_by_key(nodes, |n| n.size())
-}
-
-fn split_zeros(nodes: Vec<Node>) -> (Vec<Node>, Vec<Node>) {
-    let mut zeros = Vec::new();
-    let mut nonzeros = Vec::new();
-
-    for node in nodes.into_iter() {
-        if node.size() == 0 {
-            zeros.push(node);
-        } else {
-            nonzeros.push(node);
-        }
-    }
-
-    (nonzeros, zeros)
 }
 
 fn find_dupes_by_size(nodes: Vec<Node>, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
@@ -82,25 +26,6 @@ fn find_dupes_by_size(nodes: Vec<Node>, dupes: Sender<Vec<Node>>, uniqs: Sender<
     }
 
     task::spawn(async move{
-        let nodes = {
-            let dupes = dupes.clone();
-            let uniqs = uniqs.clone();
-
-            let (nonzeros, zeros) = task::block_in_place(|| split_zeros(nodes));
-
-            if zeros.len() == 1 {
-                task::spawn(async move {
-                    uniqs.send(zeros.into_iter().next().unwrap()).await.unwrap();
-                });
-            } else if 1 < zeros.len() {
-                task::spawn(async move {
-                    dupes.send(zeros).await.unwrap();
-                });
-            }
-
-            nonzeros
-        };
-
         let groups = task::block_in_place(|| group_by_size(nodes));
 
         for group in groups.into_iter() {
@@ -256,7 +181,7 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: Sema
         let (eq_tx, eq_rx) = mpsc::channel(nodes.len());
         let (ne_tx, ne_rx) = mpsc::channel(nodes.len());
 
-        for node in nodes.into_iter().rev() {
+        for node in nodes.into_iter() {
             let path = PathBuf::from(path.as_ref());
             let eq_tx = eq_tx.clone();
             let ne_tx = ne_tx.clone();
@@ -496,23 +421,43 @@ pub(crate) fn find_dupes(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Sema
     if ignore_dev {
         find_dupes_core(nodes, sem_small, sem_large, dupes, uniqs);
     } else {
-        let (dev_dupes_tx, mut dev_dupes_rx) = mpsc::channel(nodes.len());
-        let (dev_uniqs_tx, dev_uniqs_rx) = mpsc::channel(nodes.len());
-        find_dupes_by_dev(nodes, dev_dupes_tx, dev_uniqs_tx);
-
-        let sem_small2 = sem_small.clone();
-        let sem_large2 = sem_large.clone();
-        let dupes2 = dupes.clone();
-        let uniqs2 = uniqs.clone();
-
         task::spawn(async move {
-            while let Some(nodes) = dev_dupes_rx.recv().await {
-                find_dupes_core(nodes, sem_small.clone(), sem_large.clone(), dupes.clone(), uniqs.clone());
+            let channel_size = nodes.len();
+            let mut dev_task: HashMap<u64, Sender<Node>> = HashMap::new();
+            let mut none_devs = Vec::new();
+
+            for node in nodes.into_iter() {
+                let dev = node.dev();
+                if dev.is_none() {
+                    none_devs.push(node);
+                    continue;
+                }
+
+                match dev_task.entry(dev.unwrap()) {
+                    Vacant(v) => {
+                        let sem_small = sem_small.clone();
+                        let sem_large = sem_large.clone();
+                        let dupes = dupes.clone();
+                        let uniqs = uniqs.clone();
+                        let (tx, rx) = mpsc::channel(channel_size);
+
+                        tx.send(node).await.unwrap();
+                        v.insert(tx);
+
+                        task::spawn(async move {
+                            let nodes = ReceiverStream::new(rx).collect().await;
+                            find_dupes_core(nodes, sem_small, sem_large, dupes, uniqs);
+                        });
+                    },
+                    Occupied(o) => {
+                        o.get().send(node).await.unwrap();
+                    },
+                };
             }
-        });
-        task::spawn(async move {
-            let nodes = ReceiverStream::new(dev_uniqs_rx).collect().await;
-            find_dupes_core(nodes, sem_small2.clone(), sem_large2.clone(), dupes2.clone(), uniqs2.clone());
+
+            if 0 < none_devs.len() {
+                find_dupes_core(none_devs, sem_small, sem_large, dupes, uniqs);
+            }
         });
     }
 }

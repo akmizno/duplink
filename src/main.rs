@@ -44,7 +44,12 @@ async fn main() {
     let nodes = walk::DirWalker::new()
         .walk(&paths)
         .collect().await;
-    let (mut dupes, uniqs) = duplink.find_dupes(nodes);
+    let (mut dupes, mut uniqs) = duplink.find_dupes(nodes);
+
+    tokio::task::spawn(async move {
+        while let Some(_) = uniqs.next().await {
+        }
+    });
 
     let mut out = io::stdout();
     while let Some(dup_nodes) = dupes.next().await {
@@ -53,5 +58,4 @@ async fn main() {
         }
         out.write("\n".as_bytes()).await.unwrap();
     }
-    // println!("Hello, world!");
 }
