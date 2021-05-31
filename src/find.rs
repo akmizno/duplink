@@ -249,7 +249,7 @@ fn find_dupes_by_digest_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large:
 }
 
 
-async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Semaphore) -> (Vec<Node>, Vec<Node>) {
+async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: Semaphore) -> (Vec<Node>, Vec<Node>) {
     debug_assert!(0 < nodes.len());
 
     let (eq_rx, ne_rx) = {
@@ -288,7 +288,7 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Sem
     (eqs, nes)
 }
 
-async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore) -> Vec<Vec<Node>> {
+async fn group_by_content(mut nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
     if nodes.len() == 0 {
         return Vec::new();
     }
@@ -300,8 +300,7 @@ async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large:
         let mut rem = Vec::new();
         std::mem::swap(&mut rem, &mut nodes);
 
-        let sem = if THRESHOLD < top.size() { &sem_large } else { &sem_small };
-        let (mut eqs, nes) = collect_content_eq(top.path(), rem, sem).await;
+        let (mut eqs, nes) = collect_content_eq(top.path(), rem, sem.clone()).await;
 
         eqs.push(top);
         groups.push(eqs);
@@ -316,7 +315,7 @@ async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large:
     groups
 }
 
-fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_content(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     if nodes.len() == 0 {
         return;
     }
@@ -329,7 +328,7 @@ fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Sema
     }
 
     task::spawn(async move{
-        let groups = group_by_content(nodes, sem_small, sem_large).await;
+        let groups = group_by_content(nodes, sem).await;
 
         for mut group in groups.into_iter() {
             debug_assert!(0 < group.len());
@@ -348,7 +347,28 @@ fn find_dupes_by_content(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Sema
     });
 }
 
-fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn split_by_size(nodes: Vec<Node>, empty: Sender<Node>, small: Sender<Node>, large: Sender<Node>) {
+    for node in nodes.into_iter() {
+        if node.size() == 0 {
+            let empty = empty.clone();
+            task::spawn(async move {
+                empty.send(node).await.unwrap();
+            });
+        } else if THRESHOLD < node.size() {
+            let large = large.clone();
+            task::spawn(async move {
+                large.send(node).await.unwrap();
+            });
+        } else {
+            let small = small.clone();
+            task::spawn(async move {
+                small.send(node).await.unwrap();
+            });
+        }
+    }
+}
+
+fn find_dupes_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     if nodes.len() == 0 {
         return;
     }
@@ -371,12 +391,9 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore,
         task::spawn(async move {
             while let Some(nodes) = size_dupes.recv().await {
                 debug_assert!(0 < nodes.len());
+                debug_assert!(THRESHOLD < nodes[0].size());
                 debug_assert!(nodes.iter().map(Node::size).all_equal());
-                if THRESHOLD < nodes[0].size() {
-                    find_dupes_by_digest_large(nodes, sem_small.clone(), sem_large.clone(), digest_dupes_tx.clone(), uniqs.clone());
-                } else {
-                    find_dupes_by_digest_small(nodes, sem_small.clone(), digest_dupes_tx.clone(), uniqs.clone());
-                }
+                find_dupes_by_digest_large(nodes, sem_small.clone(), sem_large.clone(), digest_dupes_tx.clone(), uniqs.clone());
             }
         });
 
@@ -385,9 +402,91 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore,
 
     task::spawn(async move {
         while let Some(nodes) = digest_dupes.recv().await {
-            find_dupes_by_content(nodes, sem_small.clone(), sem_large.clone(), dupes.clone(), uniqs.clone());
+            find_dupes_by_content(nodes, sem_large.clone(), dupes.clone(), uniqs.clone());
         }
     });
+}
+fn find_dupes_small(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
+    let channel_size = nodes.len();
+
+    let mut size_dupes = {
+        let (size_dupes_tx, size_dupes_rx) = mpsc::channel(channel_size);
+        find_dupes_by_size(nodes, size_dupes_tx, uniqs.clone());
+        size_dupes_rx
+    };
+
+    let mut digest_dupes = {
+        let sem = sem.clone();
+        let uniqs = uniqs.clone();
+
+        let (digest_dupes_tx, digest_dupes_rx) = mpsc::channel(channel_size);
+
+        task::spawn(async move {
+            while let Some(nodes) = size_dupes.recv().await {
+                debug_assert!(0 < nodes.len());
+                debug_assert!(nodes[0].size() <= THRESHOLD);
+                debug_assert!(nodes.iter().map(Node::size).all_equal());
+                find_dupes_by_digest_small(nodes, sem.clone(), digest_dupes_tx.clone(), uniqs.clone());
+            }
+        });
+
+        digest_dupes_rx
+    };
+
+    task::spawn(async move {
+        while let Some(nodes) = digest_dupes.recv().await {
+            find_dupes_by_content(nodes, sem.clone(), dupes.clone(), uniqs.clone());
+        }
+    });
+}
+fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+    if nodes.len() == 0 {
+        return;
+    }
+
+    let channel_size = nodes.len();
+
+    let (empty_tx, empty_rx) = mpsc::channel(channel_size);
+    let (small_tx, small_rx) = mpsc::channel(channel_size);
+    let (large_tx, large_rx) = mpsc::channel(channel_size);
+    split_by_size(nodes, empty_tx, small_tx, large_tx);
+
+    // empty
+    {
+        let dupes = dupes.clone();
+        let uniqs = uniqs.clone();
+        task::spawn(async move {
+            let mut empty_nodes: Vec<Node> = ReceiverStream::new(empty_rx).collect().await;
+            if empty_nodes.len() == 1 {
+                uniqs.send(empty_nodes.pop().unwrap()).await.unwrap();
+            } else if 1 < empty_nodes.len() {
+                dupes.send(empty_nodes).await.unwrap();
+            }
+        });
+    }
+
+    // small
+    {
+        let dupes = dupes.clone();
+        let uniqs = uniqs.clone();
+        let sem = sem_small.clone();
+        task::spawn(async move {
+            let small_nodes = ReceiverStream::new(small_rx).collect().await;
+            find_dupes_small(small_nodes, sem, dupes, uniqs);
+        });
+    }
+
+    // large
+    {
+        task::spawn(async move {
+            let large_nodes = ReceiverStream::new(large_rx).collect().await;
+            find_dupes_large(large_nodes, sem_small, sem_large, dupes, uniqs);
+        });
+    }
 }
 pub(crate) fn find_dupes(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>, ignore_dev: bool) {
     if nodes.len() == 0 {
