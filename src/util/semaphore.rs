@@ -29,11 +29,13 @@ fn max_concurrency(user_limit: Option<usize>) -> usize {
 
 type TSemaphore = tokio::sync::Semaphore;
 type TPermit<'a> = tokio::sync::SemaphorePermit<'a>;
+type TMutex = tokio::sync::Mutex<()>;
+type TMutexGuard<'a> = tokio::sync::MutexGuard<'a, ()>;
 
 #[derive(Debug)]
 pub struct SemaphorePermit<'a> {
     normal: TPermit<'a>,
-    large: Option<TPermit<'a>>,
+    large: Option<TMutexGuard<'a>>,
 }
 
 pub type AcquireError = tokio::sync::AcquireError;
@@ -41,18 +43,16 @@ pub type AcquireError = tokio::sync::AcquireError;
 #[derive(Debug)]
 pub struct SemaphoreImpl {
     normal: TSemaphore,
-    large: Option<TSemaphore>,
+    large: Option<TMutex>,
 }
 
 impl SemaphoreImpl {
-    fn new(normal_permits: usize, large_permits: Option<usize>) -> SemaphoreImpl {
+    fn new(normal_permits: usize, large_mutex: bool) -> SemaphoreImpl {
         let normal = TSemaphore::new(normal_permits);
-        let large = match large_permits {
-            None => None,
-            Some(n) => {
-                assert!(n <= normal_permits);
-                Some(TSemaphore::new(n))
-            }
+        let large = if large_mutex {
+            Some(TMutex::new(()))
+        } else {
+            None
         };
         SemaphoreImpl{ normal, large }
     }
@@ -61,10 +61,10 @@ impl SemaphoreImpl {
         Ok(SemaphorePermit{ normal, large: None })
     }
     async fn acquire_large_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
-        // Acquire permits from large prior to normal.
+        // Acquire lock from large prior to normal.
         let large = match &self.large {
             None => None,
-            Some(sem) => Some(sem.acquire_many(n).await?)
+            Some(mtx) => Some(mtx.lock().await)
         };
         let normal = self.normal.acquire_many(n).await?;
         Ok(SemaphorePermit { normal, large })
@@ -98,14 +98,14 @@ pub type LargeSemaphore = Semaphore;
 
 pub struct SemaphoreBuilder {
     max_concurrency: Option<usize>,
-    large_concurrency: Option<usize>,
+    large_concurrency: bool,
 }
 
 impl SemaphoreBuilder {
     pub fn new() -> SemaphoreBuilder {
         SemaphoreBuilder {
             max_concurrency: None,
-            large_concurrency: None
+            large_concurrency: true,
         }
     }
     pub fn max_concurrency(mut self, con: Option<usize>) -> Self {
@@ -120,41 +120,33 @@ impl SemaphoreBuilder {
         };
         self
     }
-    pub fn large_concurrency(mut self, con: Option<usize>) -> Self {
-        self.large_concurrency = if con.is_none() {
-            None
-        } else if con.unwrap() == 0 {
-            None
-        } else if con.unwrap() < MIN_FDS {
-            Some(MIN_FDS)
-        } else {
-            con
-        };
+    pub fn large_concurrency(mut self, enable: bool) -> Self {
+        self.large_concurrency = enable;
         self
     }
 
     fn build_single(self, normal_con: usize) -> (SmallSemaphore, LargeSemaphore) {
-        let small_sem = Arc::new(SemaphoreImpl::new(normal_con, None));
+        let small_sem = Arc::new(SemaphoreImpl::new(normal_con, false));
         let large_sem = small_sem.clone();
         (Semaphore::Small(small_sem), Semaphore::Large(large_sem))
     }
     fn build_double(self, normal_con: usize) -> (SmallSemaphore, LargeSemaphore) {
-        debug_assert!(self.large_concurrency.is_some());
-        let large_con = self.large_concurrency.unwrap();
+        let large_con = self.large_concurrency;
 
-        if normal_con <= large_con {
+        if large_con {
             return self.build_single(normal_con);
         }
 
-        let small_sem = Arc::new(SemaphoreImpl::new(normal_con, Some(large_con)));
+        let small_sem = Arc::new(SemaphoreImpl::new(normal_con, true));
         let large_sem = small_sem.clone();
         (Semaphore::Small(small_sem), Semaphore::Large(large_sem))
     }
     pub fn build(self) -> (SmallSemaphore, LargeSemaphore) {
         let normal_con = max_concurrency(self.max_concurrency);
-        match self.large_concurrency {
-            None => self.build_single(normal_con),
-            Some(_) => self.build_double(normal_con),
+        if self.large_concurrency {
+            self.build_single(normal_con)
+        } else {
+            self.build_double(normal_con)
         }
     }
 }

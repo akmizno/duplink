@@ -227,18 +227,18 @@ fn find_dupes_by_digest_small(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Ve
     find_dupes_by_digest_impl(nodes, sem, dupes, uniqs);
 }
 
-fn find_dupes_by_digest_large(nodes: Vec<Node>, sem: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dupes_by_digest_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dupes: Sender<Vec<Node>>, uniqs: Sender<Node>) {
     if nodes.len() == 0 {
         return;
     }
 
     let (fast_dupes_tx, mut fast_dupes_rx) = mpsc::channel(nodes.len());
 
-    find_dupes_by_fast_digest_impl(nodes, sem.clone(), fast_dupes_tx, uniqs.clone());
+    find_dupes_by_fast_digest_impl(nodes, sem_small.clone(), fast_dupes_tx, uniqs.clone());
 
     task::spawn(async move {
         while let Some(nodes) = fast_dupes_rx.recv().await {
-            let sem = sem.clone();
+            let sem = sem_large.clone();
             let dupes = dupes.clone();
             let uniqs = uniqs.clone();
             task::spawn(async move {
@@ -256,7 +256,7 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Sem
         let (eq_tx, eq_rx) = mpsc::channel(nodes.len());
         let (ne_tx, ne_rx) = mpsc::channel(nodes.len());
 
-        for node in nodes.into_iter() {
+        for node in nodes.into_iter().rev() {
             let path = PathBuf::from(path.as_ref());
             let eq_tx = eq_tx.clone();
             let ne_tx = ne_tx.clone();
@@ -264,15 +264,15 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: &Sem
             task::spawn(async move{
                 let eq = {
                     let _p = sem.acquire_many(2).await.unwrap();
-                    node.eq_content(path).await
+                    let eq = node.eq_content(path).await;
+                    if eq.is_err() {
+                        log::error!("{}", eq.unwrap_err());
+                        return;
+                    }
+                    eq.unwrap()
                 };
 
-                if eq.is_err() {
-                    log::error!("{}", eq.unwrap_err());
-                    return;
-                }
-
-                if eq.unwrap() {
+                if eq {
                     eq_tx.send(node).await.unwrap();
                 } else {
                     ne_tx.send(node).await.unwrap();
@@ -297,7 +297,8 @@ async fn group_by_content(mut nodes: Vec<Node>, sem_small: Semaphore, sem_large:
 
     while 1 < nodes.len() {
         let top = nodes.pop().unwrap();
-        let rem = nodes.drain(..).collect();
+        let mut rem = Vec::new();
+        std::mem::swap(&mut rem, &mut nodes);
 
         let sem = if THRESHOLD < top.size() { &sem_large } else { &sem_small };
         let (mut eqs, nes) = collect_content_eq(top.path(), rem, sem).await;
@@ -361,7 +362,8 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore,
     };
 
     let mut digest_dupes = {
-        let sem = sem_small.clone();
+        let sem_small = sem_small.clone();
+        let sem_large = sem_large.clone();
         let uniqs = uniqs.clone();
 
         let (digest_dupes_tx, digest_dupes_rx) = mpsc::channel(channel_size);
@@ -371,9 +373,9 @@ fn find_dupes_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore,
                 debug_assert!(0 < nodes.len());
                 debug_assert!(nodes.iter().map(Node::size).all_equal());
                 if THRESHOLD < nodes[0].size() {
-                    find_dupes_by_digest_large(nodes, sem.clone(), digest_dupes_tx.clone(), uniqs.clone());
+                    find_dupes_by_digest_large(nodes, sem_small.clone(), sem_large.clone(), digest_dupes_tx.clone(), uniqs.clone());
                 } else {
-                    find_dupes_by_digest_small(nodes, sem.clone(), digest_dupes_tx.clone(), uniqs.clone());
+                    find_dupes_by_digest_small(nodes, sem_small.clone(), digest_dupes_tx.clone(), uniqs.clone());
                 }
             }
         });
@@ -426,7 +428,7 @@ mod tests {
     fn new_semaphore() -> (SmallSemaphore, LargeSemaphore) {
         SemaphoreBuilder::new()
             .max_concurrency(Some(2))
-            .large_concurrency(Some(2))
+            .large_concurrency(false)
             .build()
     }
 
