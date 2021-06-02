@@ -1,8 +1,8 @@
 #![cfg_attr(windows, feature(windows_by_handle))]
 use std::path::PathBuf;
 use tokio_stream::StreamExt;
-use clap::value_t_or_exit;
-use clap::{Arg, App, ArgGroup, crate_version, AppSettings};
+// use clap::value_t_or_exit;
+use clap::{Arg, App, crate_version, AppSettings};
 use itertools::Itertools;
 
 use tokio::io::{self, AsyncWriteExt};
@@ -39,7 +39,8 @@ async fn main() {
         .map(PathBuf::from)
         .collect_vec();
 
-    let (sem_small, sem_large) = util::semaphore::SemaphoreBuilder::new().large_concurrency(false).build();
+    let (sem_small, sem_large) = util::semaphore::SemaphoreBuilder::new().large_concurrency(true).build();
+    // let (sem_small, sem_large) = util::semaphore::SemaphoreBuilder::new().large_concurrency(false).build();
     let duplink = api::DupLink::new(sem_small, sem_large);
     let nodes = walk::DirWalker::new()
         .walk(&paths)

@@ -108,6 +108,7 @@ impl SemaphoreBuilder {
             large_concurrency: true,
         }
     }
+    #[allow(dead_code)]
     pub fn max_concurrency(mut self, con: Option<usize>) -> Self {
         self.max_concurrency = if con.is_none() {
             None
@@ -120,6 +121,7 @@ impl SemaphoreBuilder {
         };
         self
     }
+    #[allow(dead_code)]
     pub fn large_concurrency(mut self, enable: bool) -> Self {
         self.large_concurrency = enable;
         self
