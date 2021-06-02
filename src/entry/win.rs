@@ -1,6 +1,5 @@
-use async_trait::async_trait;
+use std::io;
 use std::path::Path;
-use tokio::io;
 use walkdir::DirEntry;
 
 use std::os::windows::fs::MetadataExt;
@@ -63,15 +62,7 @@ impl FileAttr for Entry {
     }
 }
 
-#[async_trait]
-impl Digest for Entry {
-    async fn fast_digest(&self) -> io::Result<u64> {
-        self.entry.fast_digest().await
-    }
-    async fn digest(&self) -> io::Result<u64> {
-        self.entry.digest().await
-    }
-}
+impl Digest for Entry {}
 
 impl ContentEq for Entry {}
 

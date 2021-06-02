@@ -1,25 +1,8 @@
-use async_trait::async_trait;
-use std::hash::Hasher;
+use std::io;
 use std::path::{Path, PathBuf};
-use tokio::fs::File;
-use tokio::io::{self, AsyncReadExt, BufReader};
-use twox_hash::XxHash64;
 use walkdir::DirEntry;
-use memmap::MmapOptions;
 
 use super::{ContentEq, Digest, FileAttr};
-use crate::util::THRESHOLD;
-
-const BUFSIZE: usize = THRESHOLD as usize;
-
-// make uninitialized buffer
-fn make_buffer() -> Box<[u8]> {
-    unsafe {
-        let mut v = Vec::with_capacity(BUFSIZE);
-        v.set_len(BUFSIZE);
-        v.into_boxed_slice()
-    }
-}
 
 #[derive(Debug)]
 pub struct Entry {
@@ -72,47 +55,6 @@ impl Entry {
         }
     }
 
-    async fn calc_hash_async(p: PathBuf, size: usize) -> io::Result<u64> {
-        let mut h: XxHash64 = Default::default();
-        if size == 0 {
-            return Ok(h.finish());
-        }
-
-        let f = File::open(p).await?;
-        let mut reader = BufReader::new(f);
-        let mut buffer = make_buffer();
-
-        let mut size_count = 0;
-        while size_count < size {
-            let n = reader.read(&mut buffer[..]).await?;
-            if n == 0 {
-                break;
-            }
-            h.write(&buffer[..n]);
-            size_count += n;
-        }
-
-        Ok(h.finish())
-    }
-    fn calc_hash_mmap(p: PathBuf, size: usize) -> io::Result<u64> {
-        let mut h: XxHash64 = Default::default();
-        if size == 0 {
-            return Ok(h.finish());
-        }
-        let f = std::fs::File::open(p)?;
-        let mmap = unsafe{ MmapOptions::new().map(&f)? };
-        h.write(&mmap[..size]);
-
-        Ok(h.finish())
-    }
-    async fn calc_hash(&self, size: usize) -> io::Result<u64> {
-        let path = PathBuf::from(self.path());
-        if size <= BUFSIZE {
-            Entry::calc_hash_async(path, size).await
-        } else {
-            tokio::task::block_in_place(move|| Entry::calc_hash_mmap(path, size))
-        }
-    }
 }
 impl FileAttr for Entry {
     fn size(&self) -> u64 {
@@ -132,19 +74,7 @@ impl FileAttr for Entry {
     }
 }
 
-#[async_trait]
-impl Digest for Entry {
-    async fn fast_digest(&self) -> io::Result<u64> {
-        if self.size() as usize <= BUFSIZE {
-            return self.digest().await;
-        }
-
-        self.calc_hash(BUFSIZE).await
-    }
-    async fn digest(&self) -> io::Result<u64> {
-        self.calc_hash(self.size() as usize).await
-    }
-}
+impl Digest for Entry {}
 
 impl ContentEq for Entry {}
 

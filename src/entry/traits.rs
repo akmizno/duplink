@@ -1,7 +1,9 @@
 use async_trait::async_trait;
+use std::hash::Hasher;
 use std::io;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
+use twox_hash::XxHash64;
 use memmap::MmapOptions;
 
 use crate::util::THRESHOLD;
@@ -15,10 +17,59 @@ pub trait FileAttr {
     fn ino(&self) -> Option<u64>;
 }
 
+async fn calc_hash_async(p: PathBuf, size: usize) -> io::Result<u64> {
+    let mut h: XxHash64 = Default::default();
+    if size == 0 {
+        return Ok(h.finish());
+    }
+
+    let f = tokio::fs::File::open(p).await?;
+    let mut reader = tokio::io::BufReader::new(f);
+    let mut buffer = make_buffer();
+
+    let mut size_count = 0;
+    while size_count < size {
+        let n = reader.read(&mut buffer[..]).await?;
+        if n == 0 {
+            break;
+        }
+        h.write(&buffer[..n]);
+        size_count += n;
+    }
+
+    Ok(h.finish())
+}
+fn calc_hash_mmap(p: PathBuf, size: usize) -> io::Result<u64> {
+    let mut h: XxHash64 = Default::default();
+    if size == 0 {
+        return Ok(h.finish());
+    }
+    let f = std::fs::File::open(p)?;
+    let mmap = unsafe{ MmapOptions::new().map(&f)? };
+    h.write(&mmap[..size]);
+
+    Ok(h.finish())
+}
+async fn calc_hash<P: AsRef<Path>>(path: P, size: usize) -> io::Result<u64> {
+    let p = PathBuf::from(path.as_ref());
+    if size <= BUFSIZE {
+        calc_hash_async(p, size).await
+    } else {
+        tokio::task::block_in_place(move|| calc_hash_mmap(p, size))
+    }
+}
 #[async_trait]
-pub trait Digest {
-    async fn fast_digest(&self) -> io::Result<u64>;
-    async fn digest(&self) -> io::Result<u64>;
+pub trait Digest: FileAttr {
+    async fn fast_digest(&self) -> io::Result<u64> {
+        if self.size() as usize <= BUFSIZE {
+            return self.digest().await;
+        }
+
+        calc_hash(self.path(), BUFSIZE).await
+    }
+    async fn digest(&self) -> io::Result<u64> {
+        calc_hash(self.path(), self.size() as usize).await
+    }
 }
 
 
