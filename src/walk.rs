@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(n.dev(), e3.dev());
         assert_eq!(n.ino(), e3.ino());
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_eq() {
         let p = "files/softlink/original";
         let e1 = Node::from_path(p).unwrap().unwrap();
@@ -311,7 +311,7 @@ mod tests {
         let d2 = e2.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_eq_multiple_time() {
         let p = "files/softlink/original";
         let e = Node::from_path(p).unwrap().unwrap();
@@ -319,7 +319,7 @@ mod tests {
         let d2 = e.fast_digest().await.unwrap();
         assert_eq!(d1, d2);
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_ne() {
         let e1 = Node::from_path("files/small-uniques/unique1").unwrap().unwrap();
         let e2 = Node::from_path("files/small-uniques/unique2").unwrap().unwrap();
@@ -327,7 +327,7 @@ mod tests {
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn digest_eq() {
         let p = "files/softlink/original";
         let e1 = Node::from_path(p).unwrap().unwrap();
@@ -336,7 +336,7 @@ mod tests {
         let d2 = e2.digest().await.unwrap();
         assert_eq!(d1, d2);
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn digest_eq_multiple_time() {
         let p = "files/softlink/original";
         let e = Node::from_path(p).unwrap().unwrap();
@@ -344,7 +344,7 @@ mod tests {
         let d2 = e.digest().await.unwrap();
         assert_eq!(d1, d2);
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn digest_ne() {
         let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         let e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
@@ -352,13 +352,13 @@ mod tests {
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_eq() {
         let e = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         let p = "files/large-uniques/fill_00_16k";
         assert!(e.eq_content(p).await.unwrap());
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_ne() {
         let e = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
         let p = "files/large-uniques/fill_ff_16k";
