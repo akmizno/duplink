@@ -73,12 +73,7 @@ impl Digest for Entry {
     }
 }
 
-#[async_trait]
-impl ContentEq for Entry {
-    async fn eq_content_path(&self, path: &Path) -> io::Result<bool> {
-        self.entry.eq_content(path).await
-    }
-}
+impl ContentEq for Entry {}
 
 #[cfg(test)]
 mod tests {
@@ -166,13 +161,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_eq() {
         let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = "files/large-uniques/fill_00_16k";
-        assert!(e.eq_content(p).await.unwrap());
+        let p = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        assert!(e.eq_content(&p).await.unwrap());
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_ne() {
         let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = "files/large-uniques/fill_ff_16k";
-        assert!(!e.eq_content(p).await.unwrap());
+        let p = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        assert!(!e.eq_content(&p).await.unwrap());
     }
 }

@@ -146,48 +146,7 @@ impl Digest for Entry {
     }
 }
 
-async fn eq_content_async(p1: PathBuf, p2: PathBuf) -> io::Result<bool> {
-    let f1 = File::open(p1).await?;
-    let f2 = File::open(p2).await?;
-    let mut reader1 = BufReader::new(f1);
-    let mut reader2 = BufReader::new(f2);
-
-    let mut buffer1 = make_buffer();
-    let mut buffer2 = make_buffer();
-
-    loop {
-        let n1 = reader1.read(&mut buffer1[..]).await?;
-        let n2 = reader2.read(&mut buffer2[..]).await?;
-
-        if n1 == 0 && n2 == 0 {
-            return Ok(true);
-        }
-
-        if buffer1[..n1] != buffer2[..n2] {
-            return Ok(false);
-        }
-    }
-}
-fn eq_content_mmap(p1: PathBuf, p2: PathBuf) -> io::Result<bool> {
-    let f1 = std::fs::File::open(p1)?;
-    let f2 = std::fs::File::open(p2)?;
-    let mmap1 = unsafe{ MmapOptions::new().map(&f1)? };
-    let mmap2 = unsafe{ MmapOptions::new().map(&f2)? };
-    Ok(mmap1[..] == mmap2[..])
-}
-#[async_trait]
-impl ContentEq for Entry {
-    async fn eq_content_path(&self, path: &Path) -> io::Result<bool> {
-        let self_path = PathBuf::from(self.path());
-        let other_path = PathBuf::from(path);
-
-        if self.size() as usize <= BUFSIZE {
-            eq_content_async(self_path, other_path).await
-        } else {
-            tokio::task::block_in_place(move|| eq_content_mmap(self_path, other_path))
-        }
-    }
-}
+impl ContentEq for Entry {}
 
 #[cfg(test)]
 mod tests {
@@ -292,13 +251,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_eq() {
         let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = "files/large-uniques/fill_00_16k";
-        assert!(e.eq_content(p).await.unwrap());
+        let p = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        assert!(e.eq_content(&p).await.unwrap());
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_ne() {
         let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = "files/large-uniques/fill_ff_16k";
-        assert!(!e.eq_content(p).await.unwrap());
+        let p = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        assert!(!e.eq_content(&p).await.unwrap());
     }
 }

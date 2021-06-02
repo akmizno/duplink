@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Vacant, Occupied};
 use itertools::Itertools;
@@ -173,22 +173,24 @@ fn find_dupes_by_digest_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large:
 }
 
 
-async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: Semaphore) -> (Vec<Node>, Vec<Node>) {
+async fn collect_content_eq(base_node: Node, nodes: Vec<Node>, sem: Semaphore) -> (Vec<Node>, Vec<Node>) {
     debug_assert!(0 < nodes.len());
+
+    let base_node = Arc::new(base_node);
 
     let (eq_rx, ne_rx) = {
         let (eq_tx, eq_rx) = mpsc::channel(nodes.len());
         let (ne_tx, ne_rx) = mpsc::channel(nodes.len());
 
-        for node in nodes.into_iter() {
-            let path = PathBuf::from(path.as_ref());
+        for node in nodes.into_iter().rev() {
+            let base_node = base_node.clone();
             let eq_tx = eq_tx.clone();
             let ne_tx = ne_tx.clone();
             let sem = sem.clone();
             task::spawn(async move{
                 let eq = {
                     let _p = sem.acquire_many(2).await.unwrap();
-                    let eq = node.eq_content(path).await;
+                    let eq = node.eq_content(&base_node).await;
                     if eq.is_err() {
                         log::error!("{}", eq.unwrap_err());
                         return;
@@ -207,8 +209,10 @@ async fn collect_content_eq<P: AsRef<Path>>(path: P, nodes: Vec<Node>, sem: Sema
         (eq_rx, ne_rx)
     };
 
-    let eqs = ReceiverStream::new(eq_rx).collect().await;
+    let mut eqs: Vec<Node> = ReceiverStream::new(eq_rx).collect().await;
     let nes = ReceiverStream::new(ne_rx).collect().await;
+
+    eqs.push(Arc::try_unwrap(base_node).unwrap());
     (eqs, nes)
 }
 
@@ -224,9 +228,8 @@ async fn group_by_content(mut nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
         let mut rem = Vec::new();
         std::mem::swap(&mut rem, &mut nodes);
 
-        let (mut eqs, nes) = collect_content_eq(top.path(), rem, sem.clone()).await;
+        let (eqs, nes) = collect_content_eq(top, rem, sem.clone()).await;
 
-        eqs.push(top);
         groups.push(eqs);
         let _ = std::mem::replace(&mut nodes, nes);
     }
@@ -463,6 +466,8 @@ pub(crate) fn find_dupes(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Sema
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::super::walk::{DirWalker, Node};
     use super::*;
 
