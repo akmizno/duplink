@@ -28,3 +28,5 @@ where
 {
     group_by_key_map(items, cmp, |i|i)
 }
+
+pub const THRESHOLD: u64 = 8192;

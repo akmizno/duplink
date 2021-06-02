@@ -13,8 +13,7 @@ use super::entry::{FileAttr, Digest, ContentEq};
 use super::walk::Node;
 use super::util::{group_by_key_map, group_by_key};
 use super::util::semaphore::Semaphore;
-
-const THRESHOLD: u64 = 8192;
+use super::util::THRESHOLD;
 
 fn group_by_size(nodes: Vec<Node>) -> Vec<Vec<Node>> {
     group_by_key(nodes, |n| n.size())

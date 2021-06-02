@@ -5,10 +5,12 @@ use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, BufReader};
 use twox_hash::XxHash64;
 use walkdir::DirEntry;
+use memmap::MmapOptions;
 
 use super::{ContentEq, Digest, FileAttr};
+use crate::util::THRESHOLD;
 
-const BUFSIZE: usize = 8192;
+const BUFSIZE: usize = THRESHOLD as usize;
 
 // make uninitialized buffer
 fn make_buffer() -> Box<[u8]> {
@@ -70,13 +72,13 @@ impl Entry {
         }
     }
 
-    async fn calc_hash(&self, size: usize) -> io::Result<u64> {
+    async fn calc_hash_async(p: PathBuf, size: usize) -> io::Result<u64> {
         let mut h: XxHash64 = Default::default();
         if size == 0 {
             return Ok(h.finish());
         }
 
-        let f = File::open(self.path()).await?;
+        let f = File::open(p).await?;
         let mut reader = BufReader::new(f);
         let mut buffer = make_buffer();
 
@@ -91,6 +93,25 @@ impl Entry {
         }
 
         Ok(h.finish())
+    }
+    fn calc_hash_mmap(p: PathBuf, size: usize) -> io::Result<u64> {
+        let mut h: XxHash64 = Default::default();
+        if size == 0 {
+            return Ok(h.finish());
+        }
+        let f = std::fs::File::open(p)?;
+        let mmap = unsafe{ MmapOptions::new().map(&f)? };
+        h.write(&mmap[..size]);
+
+        Ok(h.finish())
+    }
+    async fn calc_hash(&self, size: usize) -> io::Result<u64> {
+        let path = PathBuf::from(self.path());
+        if size <= BUFSIZE {
+            Entry::calc_hash_async(path, size).await
+        } else {
+            tokio::task::block_in_place(move|| Entry::calc_hash_mmap(path, size))
+        }
     }
 }
 impl FileAttr for Entry {
@@ -125,28 +146,45 @@ impl Digest for Entry {
     }
 }
 
+async fn eq_content_async(p1: PathBuf, p2: PathBuf) -> io::Result<bool> {
+    let f1 = File::open(p1).await?;
+    let f2 = File::open(p2).await?;
+    let mut reader1 = BufReader::new(f1);
+    let mut reader2 = BufReader::new(f2);
+
+    let mut buffer1 = make_buffer();
+    let mut buffer2 = make_buffer();
+
+    loop {
+        let n1 = reader1.read(&mut buffer1[..]).await?;
+        let n2 = reader2.read(&mut buffer2[..]).await?;
+
+        if n1 == 0 && n2 == 0 {
+            return Ok(true);
+        }
+
+        if buffer1[..n1] != buffer2[..n2] {
+            return Ok(false);
+        }
+    }
+}
+fn eq_content_mmap(p1: PathBuf, p2: PathBuf) -> io::Result<bool> {
+    let f1 = std::fs::File::open(p1)?;
+    let f2 = std::fs::File::open(p2)?;
+    let mmap1 = unsafe{ MmapOptions::new().map(&f1)? };
+    let mmap2 = unsafe{ MmapOptions::new().map(&f2)? };
+    Ok(mmap1[..] == mmap2[..])
+}
 #[async_trait]
 impl ContentEq for Entry {
     async fn eq_content_path(&self, path: &Path) -> io::Result<bool> {
-        let f1 = File::open(self.path()).await?;
-        let f2 = File::open(path).await?;
-        let mut reader1 = BufReader::new(f1);
-        let mut reader2 = BufReader::new(f2);
+        let self_path = PathBuf::from(self.path());
+        let other_path = PathBuf::from(path);
 
-        let mut buffer1 = make_buffer();
-        let mut buffer2 = make_buffer();
-
-        loop {
-            let n1 = reader1.read(&mut buffer1[..]).await?;
-            let n2 = reader2.read(&mut buffer2[..]).await?;
-
-            if n1 == 0 && n2 == 0 {
-                return Ok(true);
-            }
-
-            if buffer1[..n1] != buffer2[..n2] {
-                return Ok(false);
-            }
+        if self.size() as usize <= BUFSIZE {
+            eq_content_async(self_path, other_path).await
+        } else {
+            tokio::task::block_in_place(move|| eq_content_mmap(self_path, other_path))
         }
     }
 }
