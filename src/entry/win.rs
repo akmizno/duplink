@@ -37,7 +37,8 @@ impl Entry {
 
     pub(crate) fn from_direntry(d: DirEntry) -> io::Result<Option<Self>> {
         // Call Self::from_path() because
-        // DirEntry can not create Metadata which returns valid values from volume_serial_number() and file_index().
+        // volume serial number and file index can not be obtained from
+        // Metadata created by walkdir::DirEntry.
         Entry::from_path(d.path())
     }
 }
