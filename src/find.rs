@@ -59,8 +59,17 @@ async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
             task::spawn(async move {
                 let d = {
                     let _p = sem.acquire().await.unwrap();
-                    node.fast_digest().await.unwrap();
+                    node.fast_digest().await
                 };
+
+                let d = match d {
+                    Err(e) => {
+                        log::warn!("{}: {}", e, node.path().display());
+                        return;
+                    },
+                    Ok(d) => d
+                };
+
                 tx.send((d, node)).await.unwrap();
             });
         }
@@ -84,8 +93,19 @@ async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
             let tx = tx.clone();
             let sem = sem.clone();
             task::spawn(async move {
-                let _p = sem.acquire().await.unwrap();
-                let d = node.digest().await.unwrap();
+                let d = {
+                    let _p = sem.acquire().await.unwrap();
+                    node.digest().await
+                };
+
+                let d = match d {
+                    Err(e) => {
+                        log::warn!("{}: {}", e, node.path().display());
+                        return;
+                    },
+                    Ok(d) => d
+                };
+
                 tx.send((d, node)).await.unwrap();
             });
         }
@@ -190,19 +210,23 @@ async fn collect_content_eq(base_node: Node, nodes: Vec<Node>, sem: Semaphore) -
             task::spawn(async move{
                 let eq = {
                     let _p = sem.acquire_many(2).await.unwrap();
-                    let eq = node.eq_content(&base_node).await;
-                    if eq.is_err() {
-                        log::error!("{}", eq.unwrap_err());
-                        return;
-                    }
-                    eq.unwrap()
+                    base_node.eq_content(&node).await
                 };
 
-                if eq {
-                    eq_tx.send(node).await.unwrap();
-                } else {
-                    ne_tx.send(node).await.unwrap();
-                }
+                match eq {
+                    Err(e) => {
+                        log::warn!("{}: {} or {}",
+                            e, base_node.path().display(), node.path().display());
+                        ne_tx.send(node).await.unwrap();
+                    },
+                    Ok(eq) => {
+                        if eq {
+                            eq_tx.send(node).await.unwrap();
+                        } else {
+                            ne_tx.send(node).await.unwrap();
+                        }
+                    },
+                };
             });
         }
 
@@ -212,6 +236,8 @@ async fn collect_content_eq(base_node: Node, nodes: Vec<Node>, sem: Semaphore) -
     let mut eqs: Vec<Node> = ReceiverStream::new(eq_rx).collect().await;
     let nes = ReceiverStream::new(ne_rx).collect().await;
 
+    // The base_node can be unwrapped because
+    // it is clear that all of spawned tasks have been end at this time.
     eqs.push(Arc::try_unwrap(base_node).unwrap());
     (eqs, nes)
 }

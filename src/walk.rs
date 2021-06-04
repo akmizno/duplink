@@ -117,19 +117,21 @@ fn into_entry_stream(wds: Vec<WalkDir>) -> mpsc::UnboundedReceiver<Entry> {
         let tx = tx.clone();
         task::spawn_blocking(move ||{
             for d in wd.into_iter() {
-                if d.is_err() {
-                    log::warn!("{}", d.unwrap_err());
+                if let walkdir::Result::Err(e) = d {
+                    log::warn!("{}", e);
                     continue;
                 }
 
                 let entry = Entry::from_direntry(d.unwrap());
-                if entry.is_err() {
-                    log::warn!("{}", entry.unwrap_err());
+                if let Err(e) = entry {
+                    log::warn!("{}", e);
                     continue;
                 }
+
                 let entry = entry.unwrap();
 
                 if entry.is_none() {
+                    // Directory entry.
                     continue;
                 }
                 let entry = entry.unwrap();

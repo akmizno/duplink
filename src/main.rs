@@ -19,6 +19,7 @@ use entry::FileAttr;
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let matches = App::new("duplink")
         .setting(AppSettings::ColoredHelp)
         .author("Akira MIZUNO, akmizno@gmail.com")

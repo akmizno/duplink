@@ -33,10 +33,12 @@ impl Entry {
     pub(crate) fn from_direntry(d: DirEntry) -> io::Result<Option<Entry>> {
         let meta = d.metadata();
         if let walkdir::Result::Err(we) = meta {
-            match we.into_io_error() {
-                None => return Ok(None),
-                Some(e) => return Err(e)
-            }
+            let westr = format!("{}", we);
+            let err = match we.into_io_error() {
+                None => io::Error::new(io::ErrorKind::Other, westr),
+                Some(e) => e
+            };
+            return Err(err);
         }
         let meta = meta.unwrap();
 
