@@ -194,12 +194,12 @@ impl DirWalker {
     pub fn new() -> DirWalker {
         DirWalker{ min_depth: None, max_depth: None, follow_links: true }
     }
-    pub fn min_depth(mut self, depth: usize) -> DirWalker {
-        self.min_depth = Some(depth);
+    pub fn min_depth(mut self, depth: Option<usize>) -> DirWalker {
+        self.min_depth = depth;
         self
     }
-    pub fn max_depth(mut self, depth: usize) -> DirWalker {
-        self.max_depth = Some(depth);
+    pub fn max_depth(mut self, depth: Option<usize>) -> DirWalker {
+        self.max_depth = depth;
         self
     }
     pub fn follow_links(mut self, f: bool) -> DirWalker {
@@ -462,7 +462,7 @@ mod tests {
     async fn walk_dir_min_depth() {
         let p = "files/depth-uniques";
         let paths = DirWalker::new()
-            .min_depth(4)
+            .min_depth(Some(4))
             .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
@@ -476,7 +476,7 @@ mod tests {
     async fn walk_dir_max_depth() {
         let p = "files/depth-uniques";
         let paths = DirWalker::new()
-            .max_depth(1)
+            .max_depth(Some(1))
             .walk(&[p])
             .collect::<Vec<Node>>().await
             .into_iter()
