@@ -5,6 +5,7 @@ use clap::{Arg, App, ArgGroup, ArgMatches, crate_version, AppSettings};
 use clap::value_t_or_exit;
 use itertools::Itertools;
 
+use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
 // use std::io::{stdout, Write};
 // use std::io::BufWriter;
@@ -16,6 +17,59 @@ pub(crate) mod util;
 pub mod api;
 
 use entry::FileAttr;
+use api::{UniqueStream, DuplicateStream};
+
+fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn(async move {
+        while let Some(node) = uniqs.next().await {
+            out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
+        }
+    })
+}
+fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn(async move {
+        while let Some(dup_nodes) = dups.next().await {
+            for node in dup_nodes {
+                out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
+            }
+            out.write("\n".as_bytes()).await.unwrap();
+        }
+    })
+}
+
+enum Output {
+    Sink(io::Sink),
+    Stdout(io::BufWriter<io::Stdout>),
+    File(io::BufWriter<fs::File>),
+}
+
+impl Output {
+    fn stdout() -> Self {
+        Output::Stdout(io::BufWriter::new(io::stdout()))
+    }
+    fn sink() -> Self {
+        Output::Sink(io::sink())
+    }
+    async fn write(&mut self, src: &[u8]) -> io::Result<usize> {
+        match self {
+            Output::Sink(o) => o.write(src).await,
+            Output::Stdout(o) => o.write(src).await,
+            Output::File(o) => o.write(src).await,
+        }
+    }
+}
+impl From<fs::File> for Output {
+    fn from(w: fs::File) -> Self {
+        Output::File(io::BufWriter::new(w))
+    }
+}
+fn build_output_writers(matches: &ArgMatches) -> (Output, Output) {
+    if matches.is_present("unique") {
+        (Output::sink(), Output::stdout())
+    } else {
+        (Output::stdout(), Output::sink())
+    }
+}
 
 fn build_semaphore(matches: &ArgMatches) -> (util::semaphore::SmallSemaphore, util::semaphore::LargeSemaphore) {
     let builder = util::semaphore::SemaphoreBuilder::new()
@@ -101,6 +155,12 @@ async fn main() {
             .required(false)
             .help("Maximum level of directory traversal."))
 
+        .arg(Arg::with_name("unique")
+            .long("unique")
+            .takes_value(false)
+            .required(false)
+            .help("Find unique file instead of duplicates."))
+
         .get_matches();
 
     let paths: Vec<PathBuf> = matches.values_of("PATH").unwrap()
@@ -115,18 +175,13 @@ async fn main() {
         .collect().await;
 
     let duplink = api::DupLink::new(sem_small, sem_large);
-    let (mut dups, mut uniqs) = duplink.find_dups(nodes);
+    let (dups, uniqs) = duplink.find_dups(nodes);
 
-    tokio::task::spawn(async move {
-        while let Some(_) = uniqs.next().await {
-        }
-    });
+    let (dup_out, uniq_out) = build_output_writers(&matches);
 
-    let mut out = io::stdout();
-    while let Some(dup_nodes) = dups.next().await {
-        for node in dup_nodes {
-            out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
-        }
-        out.write("\n".as_bytes()).await.unwrap();
-    }
+    let uniq_handle = write_uniqs(uniq_out, uniqs);
+    let dup_handle = write_dups(dup_out, dups);
+
+    uniq_handle.await.unwrap();
+    dup_handle.await.unwrap();
 }
