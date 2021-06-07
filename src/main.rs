@@ -115,7 +115,7 @@ async fn main() {
         .collect().await;
 
     let duplink = api::DupLink::new(sem_small, sem_large);
-    let (mut dupes, mut uniqs) = duplink.find_dupes(nodes);
+    let (mut dups, mut uniqs) = duplink.find_dups(nodes);
 
     tokio::task::spawn(async move {
         while let Some(_) = uniqs.next().await {
@@ -123,7 +123,7 @@ async fn main() {
     });
 
     let mut out = io::stdout();
-    while let Some(dup_nodes) = dupes.next().await {
+    while let Some(dup_nodes) = dups.next().await {
         for node in dup_nodes {
             out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
         }

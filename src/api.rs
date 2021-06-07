@@ -23,13 +23,13 @@ impl DupLink {
         }
     }
 
-    pub fn find_dupes(self, nodes: Vec<Node>) -> (DuplicateStream, UniqueStream) {
-        let (dupes_tx, dupes_rx) = mpsc::channel(nodes.len());
+    pub fn find_dups(self, nodes: Vec<Node>) -> (DuplicateStream, UniqueStream) {
+        let (dups_tx, dups_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
 
-        find::find_dupes(nodes, self.sem_small, self.sem_large, dupes_tx, uniqs_tx, self.ignore_dev);
+        find::find_dups(nodes, self.sem_small, self.sem_large, dups_tx, uniqs_tx, self.ignore_dev);
 
-        (ReceiverStream::new(dupes_rx), ReceiverStream::new(uniqs_rx))
+        (ReceiverStream::new(dups_rx), ReceiverStream::new(uniqs_rx))
     }
 }
 
