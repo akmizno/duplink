@@ -19,7 +19,7 @@ use entry::FileAttr;
 
 fn build_semaphore(matches: &ArgMatches) -> (util::semaphore::SmallSemaphore, util::semaphore::LargeSemaphore) {
     let builder = util::semaphore::SemaphoreBuilder::new()
-        .large_concurrency(matches.is_present("hdd"));
+        .large_concurrency(!matches.is_present("hdd"));
     let builder = if matches.is_present("fdlimit") {
         builder.max_concurrency(Some(value_t_or_exit!(matches, "fdlimit", usize)))
     } else {
