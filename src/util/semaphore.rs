@@ -1,5 +1,3 @@
-use fdlimit;
-use num_cpus;
 use std::cmp;
 use std::sync::Arc;
 
@@ -111,14 +109,14 @@ impl SemaphoreBuilder {
     }
     #[allow(dead_code)]
     pub fn max_concurrency(mut self, con: Option<usize>) -> Self {
-        self.max_concurrency = if con.is_none() {
-            None
-        } else if con.unwrap() == 0 {
-            None
-        } else if con.unwrap() < MIN_FDS {
-            Some(MIN_FDS)
+        self.max_concurrency = if let Some(c) = con {
+            if c == 0 {
+                None
+            } else {
+                Some(std::cmp::min(c, MIN_FDS))
+            }
         } else {
-            con
+            None
         };
         self
     }

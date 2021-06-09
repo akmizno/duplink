@@ -13,7 +13,7 @@ where
     F: FnMut(&T) -> K,
     M: FnMut(T) -> V,
 {
-    if items.len() == 0 {
+    if items.is_empty() {
         return Vec::new();
     }
 

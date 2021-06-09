@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use futures::stream::StreamExt;
 use itertools::Itertools;
-use log;
 use std::path::Path;
 use tokio::io;
 use tokio::sync::mpsc;
@@ -22,16 +21,14 @@ fn have_all_same_dev(entries: &[Entry]) -> bool {
 
 #[derive(Debug)]
 pub struct Node {
-    entries: Box<Vec<Entry>>,
+    entries: Vec<Entry>,
 }
 
 impl Node {
     fn new(entries: Vec<Entry>) -> Self {
         assert!(!entries.is_empty());
         debug_assert!(have_all_same_dev(&entries));
-        Node {
-            entries: Box::new(entries),
-        }
+        Node { entries }
     }
 
     #[allow(dead_code)]
@@ -97,16 +94,16 @@ fn make_walkdir_single<P: AsRef<Path>>(
     follow_links: bool,
 ) -> WalkDir {
     let w = WalkDir::new(root).follow_links(follow_links);
+
     let w = match min_depth {
         None => w,
         Some(d) => w.min_depth(d),
     };
-    let w = match max_depth {
+
+    match max_depth {
         None => w,
         Some(d) => w.max_depth(d),
-    };
-
-    w
+    }
 }
 
 fn into_entry_stream(wds: Vec<WalkDir>) -> mpsc::UnboundedReceiver<Entry> {
@@ -174,7 +171,7 @@ fn entries2nodes(entries: Vec<Entry>) -> Vec<Node> {
         .group_by(|e| DevInoCmp::new(&e))
         .into_iter()
         .map(|(_, g)| g.collect_vec())
-        .map(|g| Node::from_entries(g))
+        .map(Node::from_entries)
         .collect_vec()
 }
 
@@ -230,6 +227,12 @@ impl DirWalker {
         });
 
         NodeStream::new(rx)
+    }
+}
+
+impl Default for DirWalker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

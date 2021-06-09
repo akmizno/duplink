@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use log;
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,7 +20,7 @@ fn group_by_size(nodes: Vec<Node>) -> Vec<Vec<Node>> {
 }
 
 fn find_dups_by_size(nodes: Vec<Node>, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -28,7 +28,7 @@ fn find_dups_by_size(nodes: Vec<Node>, dups: Sender<Vec<Node>>, uniqs: Sender<No
         let groups = task::block_in_place(|| group_by_size(nodes));
 
         for group in groups.into_iter() {
-            debug_assert!(0 < group.len());
+            debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
@@ -45,7 +45,7 @@ fn find_dups_by_size(nodes: Vec<Node>, dups: Sender<Vec<Node>>, uniqs: Sender<No
 }
 
 async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return Vec::new();
     }
 
@@ -81,7 +81,7 @@ async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
 }
 
 async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return Vec::new();
     }
 
@@ -122,7 +122,7 @@ fn find_dups_by_fast_digest_impl(
     dups: Sender<Vec<Node>>,
     uniqs: Sender<Node>,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -130,7 +130,7 @@ fn find_dups_by_fast_digest_impl(
         let groups = group_by_fast_digest(nodes, sem).await;
 
         for mut group in groups.into_iter() {
-            debug_assert!(0 < group.len());
+            debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
@@ -152,7 +152,7 @@ fn find_dups_by_digest_impl(
     dups: Sender<Vec<Node>>,
     uniqs: Sender<Node>,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -160,7 +160,7 @@ fn find_dups_by_digest_impl(
         let groups = group_by_digest(nodes, sem).await;
 
         for mut group in groups.into_iter() {
-            debug_assert!(0 < group.len());
+            debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
@@ -192,13 +192,13 @@ fn find_dups_by_digest_large(
     dups: Sender<Vec<Node>>,
     uniqs: Sender<Node>,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
     let (fast_dups_tx, mut fast_dups_rx) = mpsc::channel(nodes.len());
 
-    find_dups_by_fast_digest_impl(nodes, sem_small.clone(), fast_dups_tx, uniqs.clone());
+    find_dups_by_fast_digest_impl(nodes, sem_small, fast_dups_tx, uniqs.clone());
 
     task::spawn(async move {
         while let Some(nodes) = fast_dups_rx.recv().await {
@@ -217,7 +217,7 @@ async fn collect_content_eq(
     nodes: Vec<Node>,
     sem: Semaphore,
 ) -> (Vec<Node>, Vec<Node>) {
-    debug_assert!(0 < nodes.len());
+    debug_assert!(!nodes.is_empty());
 
     let base_node = Arc::new(base_node);
 
@@ -270,7 +270,7 @@ async fn collect_content_eq(
 }
 
 async fn group_by_content(mut nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return Vec::new();
     }
 
@@ -291,7 +291,7 @@ async fn group_by_content(mut nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
         groups.push(nodes);
     }
 
-    debug_assert!(groups.iter().all(|v| 0 < v.len()));
+    debug_assert!(groups.iter().all(|v| !v.is_empty()));
     groups
 }
 
@@ -301,7 +301,7 @@ fn find_dups_by_content(
     dups: Sender<Vec<Node>>,
     uniqs: Sender<Node>,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
     if nodes.len() == 1 {
@@ -316,7 +316,7 @@ fn find_dups_by_content(
         let groups = group_by_content(nodes, sem).await;
 
         for mut group in groups.into_iter() {
-            debug_assert!(0 < group.len());
+            debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
@@ -360,7 +360,7 @@ fn find_dups_large(
     dups: Sender<Vec<Node>>,
     uniqs: Sender<Node>,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -373,7 +373,6 @@ fn find_dups_large(
     };
 
     let mut digest_dups = {
-        let sem_small = sem_small.clone();
         let sem_large = sem_large.clone();
         let uniqs = uniqs.clone();
 
@@ -381,7 +380,7 @@ fn find_dups_large(
 
         task::spawn(async move {
             while let Some(nodes) = size_dups.recv().await {
-                debug_assert!(0 < nodes.len());
+                debug_assert!(!nodes.is_empty());
                 debug_assert!(THRESHOLD < nodes[0].size());
                 debug_assert!(nodes.iter().map(Node::size).all_equal());
                 find_dups_by_digest_large(
@@ -404,7 +403,7 @@ fn find_dups_large(
     });
 }
 fn find_dups_small(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -424,7 +423,7 @@ fn find_dups_small(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, un
 
         task::spawn(async move {
             while let Some(nodes) = size_dups.recv().await {
-                debug_assert!(0 < nodes.len());
+                debug_assert!(!nodes.is_empty());
                 debug_assert!(nodes[0].size() <= THRESHOLD);
                 debug_assert!(nodes.iter().map(Node::size).all_equal());
                 find_dups_by_digest_small(
@@ -452,7 +451,7 @@ fn find_dups_core(
     dups: Sender<Vec<Node>>,
     uniqs: Sender<Node>,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -469,10 +468,10 @@ fn find_dups_core(
         let uniqs = uniqs.clone();
         task::spawn(async move {
             let mut empty_nodes: Vec<Node> = ReceiverStream::new(empty_rx).collect().await;
-            if empty_nodes.len() == 1 {
-                uniqs.send(empty_nodes.pop().unwrap()).await.unwrap();
-            } else if 1 < empty_nodes.len() {
-                dups.send(empty_nodes).await.unwrap();
+            match empty_nodes.len().cmp(&1) {
+                Ordering::Equal => uniqs.send(empty_nodes.pop().unwrap()).await.unwrap(),
+                Ordering::Greater => dups.send(empty_nodes).await.unwrap(),
+                _ => (),
             }
         });
     }
@@ -504,7 +503,7 @@ pub(crate) fn find_dups(
     uniqs: Sender<Node>,
     ignore_dev: bool,
 ) {
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         return;
     }
 
@@ -545,7 +544,7 @@ pub(crate) fn find_dups(
                 };
             }
 
-            if 0 < none_devs.len() {
+            if !none_devs.is_empty() {
                 find_dups_core(none_devs, sem_small, sem_large, dups, uniqs);
             }
         });
