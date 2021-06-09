@@ -1,9 +1,9 @@
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::walk::Node;
 use super::find;
 use super::util::semaphore::Semaphore;
+use super::walk::Node;
 
 pub type DuplicateStream = ReceiverStream<Vec<Node>>;
 pub type UniqueStream = ReceiverStream<Node>;
@@ -27,9 +27,15 @@ impl DupLink {
         let (dups_tx, dups_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());
 
-        find::find_dups(nodes, self.sem_small, self.sem_large, dups_tx, uniqs_tx, self.ignore_dev);
+        find::find_dups(
+            nodes,
+            self.sem_small,
+            self.sem_large,
+            dups_tx,
+            uniqs_tx,
+            self.ignore_dev,
+        );
 
         (ReceiverStream::new(dups_rx), ReceiverStream::new(uniqs_rx))
     }
 }
-

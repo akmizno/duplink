@@ -1,28 +1,30 @@
 #![cfg_attr(windows, feature(windows_by_handle))]
+use clap::value_t_or_exit;
+use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches};
+use itertools::Itertools;
 use std::path::PathBuf;
 use tokio_stream::StreamExt;
-use clap::{Arg, App, ArgGroup, ArgMatches, crate_version, AppSettings};
-use clap::value_t_or_exit;
-use itertools::Itertools;
 
 use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
 // use std::io::{stdout, Write};
 // use std::io::BufWriter;
 
+pub mod api;
 pub mod entry;
-pub mod walk;
 pub mod find;
 pub(crate) mod util;
-pub mod api;
+pub mod walk;
 
+use api::{DuplicateStream, UniqueStream};
 use entry::FileAttr;
-use api::{UniqueStream, DuplicateStream};
 
 fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(node) = uniqs.next().await {
-            out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
+            out.write(format!("{}\n", node.path().display()).as_bytes())
+                .await
+                .unwrap();
         }
     })
 }
@@ -30,7 +32,9 @@ fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHa
     tokio::task::spawn(async move {
         while let Some(dup_nodes) = dups.next().await {
             for node in dup_nodes {
-                out.write(format!("{}\n", node.path().display()).as_bytes()).await.unwrap();
+                out.write(format!("{}\n", node.path().display()).as_bytes())
+                    .await
+                    .unwrap();
             }
             out.write("\n".as_bytes()).await.unwrap();
         }
@@ -71,9 +75,14 @@ fn build_output_writers(matches: &ArgMatches) -> (Output, Output) {
     }
 }
 
-fn build_semaphore(matches: &ArgMatches) -> (util::semaphore::SmallSemaphore, util::semaphore::LargeSemaphore) {
-    let builder = util::semaphore::SemaphoreBuilder::new()
-        .large_concurrency(!matches.is_present("hdd"));
+fn build_semaphore(
+    matches: &ArgMatches,
+) -> (
+    util::semaphore::SmallSemaphore,
+    util::semaphore::LargeSemaphore,
+) {
+    let builder =
+        util::semaphore::SemaphoreBuilder::new().large_concurrency(!matches.is_present("hdd"));
     let builder = if matches.is_present("fdlimit") {
         builder.max_concurrency(Some(value_t_or_exit!(matches, "fdlimit", usize)))
     } else {
@@ -83,8 +92,7 @@ fn build_semaphore(matches: &ArgMatches) -> (util::semaphore::SmallSemaphore, ut
 }
 
 fn build_walker(matches: &ArgMatches) -> walk::DirWalker {
-    let walker = walk::DirWalker::new()
-        .follow_links(!matches.is_present("no-follow"));
+    let walker = walk::DirWalker::new().follow_links(!matches.is_present("no-follow"));
 
     let walker = if matches.is_present("min-depth") {
         walker.min_depth(Some(value_t_or_exit!(matches, "min-depth", usize)))
@@ -163,16 +171,16 @@ async fn main() {
 
         .get_matches();
 
-    let paths: Vec<PathBuf> = matches.values_of("PATH").unwrap()
+    let paths: Vec<PathBuf> = matches
+        .values_of("PATH")
+        .unwrap()
         .into_iter()
         .map(PathBuf::from)
         .collect_vec();
 
     let (sem_small, sem_large) = build_semaphore(&matches);
 
-    let nodes = build_walker(&matches)
-        .walk(&paths)
-        .collect().await;
+    let nodes = build_walker(&matches).walk(&paths).collect().await;
 
     let duplink = api::DupLink::new(sem_small, sem_large);
     let (dups, uniqs) = duplink.find_dups(nodes);

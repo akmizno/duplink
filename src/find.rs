@@ -1,19 +1,19 @@
-use tokio::task;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::StreamExt;
-use std::sync::Arc;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry::{Vacant, Occupied};
 use itertools::Itertools;
 use log;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use tokio::task;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
 
-use super::entry::{FileAttr, Digest, ContentEq};
-use super::walk::Node;
-use super::util::{group_by_key_map, group_by_key};
+use super::entry::{ContentEq, Digest, FileAttr};
 use super::util::semaphore::Semaphore;
 use super::util::THRESHOLD;
+use super::util::{group_by_key, group_by_key_map};
+use super::walk::Node;
 
 fn group_by_size(nodes: Vec<Node>) -> Vec<Vec<Node>> {
     group_by_key(nodes, |n| n.size())
@@ -24,7 +24,7 @@ fn find_dups_by_size(nodes: Vec<Node>, dups: Sender<Vec<Node>>, uniqs: Sender<No
         return;
     }
 
-    task::spawn(async move{
+    task::spawn(async move {
         let groups = task::block_in_place(|| group_by_size(nodes));
 
         for group in groups.into_iter() {
@@ -43,7 +43,6 @@ fn find_dups_by_size(nodes: Vec<Node>, dups: Sender<Vec<Node>>, uniqs: Sender<No
         }
     });
 }
-
 
 async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
     if nodes.len() == 0 {
@@ -66,8 +65,8 @@ async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
                     Err(e) => {
                         log::warn!("{}: {}", e, node.path().display());
                         return;
-                    },
-                    Ok(d) => d
+                    }
+                    Ok(d) => d,
                 };
 
                 tx.send((d, node)).await.unwrap();
@@ -102,8 +101,8 @@ async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
                     Err(e) => {
                         log::warn!("{}: {}", e, node.path().display());
                         return;
-                    },
-                    Ok(d) => d
+                    }
+                    Ok(d) => d,
                 };
 
                 tx.send((d, node)).await.unwrap();
@@ -117,12 +116,17 @@ async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
     task::block_in_place(|| group_by_key_map(dn, |&(d, _)| d, |(_, n)| n))
 }
 
-fn find_dups_by_fast_digest_impl(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_by_fast_digest_impl(
+    nodes: Vec<Node>,
+    sem: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     if nodes.len() == 0 {
         return;
     }
 
-    task::spawn(async move{
+    task::spawn(async move {
         let groups = group_by_fast_digest(nodes, sem).await;
 
         for mut group in groups.into_iter() {
@@ -142,12 +146,17 @@ fn find_dups_by_fast_digest_impl(nodes: Vec<Node>, sem: Semaphore, dups: Sender<
     });
 }
 
-fn find_dups_by_digest_impl(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_by_digest_impl(
+    nodes: Vec<Node>,
+    sem: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     if nodes.len() == 0 {
         return;
     }
 
-    task::spawn(async move{
+    task::spawn(async move {
         let groups = group_by_digest(nodes, sem).await;
 
         for mut group in groups.into_iter() {
@@ -167,11 +176,22 @@ fn find_dups_by_digest_impl(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<N
     });
 }
 
-fn find_dups_by_digest_small(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_by_digest_small(
+    nodes: Vec<Node>,
+    sem: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     find_dups_by_digest_impl(nodes, sem, dups, uniqs);
 }
 
-fn find_dups_by_digest_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_by_digest_large(
+    nodes: Vec<Node>,
+    sem_small: Semaphore,
+    sem_large: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     if nodes.len() == 0 {
         return;
     }
@@ -192,8 +212,11 @@ fn find_dups_by_digest_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large: 
     });
 }
 
-
-async fn collect_content_eq(base_node: Node, nodes: Vec<Node>, sem: Semaphore) -> (Vec<Node>, Vec<Node>) {
+async fn collect_content_eq(
+    base_node: Node,
+    nodes: Vec<Node>,
+    sem: Semaphore,
+) -> (Vec<Node>, Vec<Node>) {
     debug_assert!(0 < nodes.len());
 
     let base_node = Arc::new(base_node);
@@ -207,7 +230,7 @@ async fn collect_content_eq(base_node: Node, nodes: Vec<Node>, sem: Semaphore) -
             let eq_tx = eq_tx.clone();
             let ne_tx = ne_tx.clone();
             let sem = sem.clone();
-            task::spawn(async move{
+            task::spawn(async move {
                 let eq = {
                     let _p = sem.acquire_many(2).await.unwrap();
                     base_node.eq_content(&node).await
@@ -215,17 +238,21 @@ async fn collect_content_eq(base_node: Node, nodes: Vec<Node>, sem: Semaphore) -
 
                 match eq {
                     Err(e) => {
-                        log::warn!("{}: {} or {}",
-                            e, base_node.path().display(), node.path().display());
+                        log::warn!(
+                            "{}: {} or {}",
+                            e,
+                            base_node.path().display(),
+                            node.path().display()
+                        );
                         ne_tx.send(node).await.unwrap();
-                    },
+                    }
                     Ok(eq) => {
                         if eq {
                             eq_tx.send(node).await.unwrap();
                         } else {
                             ne_tx.send(node).await.unwrap();
                         }
-                    },
+                    }
                 };
             });
         }
@@ -268,7 +295,12 @@ async fn group_by_content(mut nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
     groups
 }
 
-fn find_dups_by_content(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_by_content(
+    nodes: Vec<Node>,
+    sem: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     if nodes.len() == 0 {
         return;
     }
@@ -280,7 +312,7 @@ fn find_dups_by_content(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>
         return;
     }
 
-    task::spawn(async move{
+    task::spawn(async move {
         let groups = group_by_content(nodes, sem).await;
 
         for mut group in groups.into_iter() {
@@ -321,7 +353,13 @@ fn split_by_size(nodes: Vec<Node>, empty: Sender<Node>, small: Sender<Node>, lar
     }
 }
 
-fn find_dups_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_large(
+    nodes: Vec<Node>,
+    sem_small: Semaphore,
+    sem_large: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     if nodes.len() == 0 {
         return;
     }
@@ -346,7 +384,13 @@ fn find_dups_large(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore,
                 debug_assert!(0 < nodes.len());
                 debug_assert!(THRESHOLD < nodes[0].size());
                 debug_assert!(nodes.iter().map(Node::size).all_equal());
-                find_dups_by_digest_large(nodes, sem_small.clone(), sem_large.clone(), digest_dups_tx.clone(), uniqs.clone());
+                find_dups_by_digest_large(
+                    nodes,
+                    sem_small.clone(),
+                    sem_large.clone(),
+                    digest_dups_tx.clone(),
+                    uniqs.clone(),
+                );
             }
         });
 
@@ -383,7 +427,12 @@ fn find_dups_small(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, un
                 debug_assert!(0 < nodes.len());
                 debug_assert!(nodes[0].size() <= THRESHOLD);
                 debug_assert!(nodes.iter().map(Node::size).all_equal());
-                find_dups_by_digest_small(nodes, sem.clone(), digest_dups_tx.clone(), uniqs.clone());
+                find_dups_by_digest_small(
+                    nodes,
+                    sem.clone(),
+                    digest_dups_tx.clone(),
+                    uniqs.clone(),
+                );
             }
         });
 
@@ -396,7 +445,13 @@ fn find_dups_small(nodes: Vec<Node>, sem: Semaphore, dups: Sender<Vec<Node>>, un
         }
     });
 }
-fn find_dups_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>) {
+fn find_dups_core(
+    nodes: Vec<Node>,
+    sem_small: Semaphore,
+    sem_large: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+) {
     if nodes.len() == 0 {
         return;
     }
@@ -441,7 +496,14 @@ fn find_dups_core(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, 
         });
     }
 }
-pub(crate) fn find_dups(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semaphore, dups: Sender<Vec<Node>>, uniqs: Sender<Node>, ignore_dev: bool) {
+pub(crate) fn find_dups(
+    nodes: Vec<Node>,
+    sem_small: Semaphore,
+    sem_large: Semaphore,
+    dups: Sender<Vec<Node>>,
+    uniqs: Sender<Node>,
+    ignore_dev: bool,
+) {
     if nodes.len() == 0 {
         return;
     }
@@ -476,10 +538,10 @@ pub(crate) fn find_dups(nodes: Vec<Node>, sem_small: Semaphore, sem_large: Semap
                             let nodes = ReceiverStream::new(rx).collect().await;
                             find_dups_core(nodes, sem_small, sem_large, dups, uniqs);
                         });
-                    },
+                    }
                     Occupied(o) => {
                         o.get().send(node).await.unwrap();
-                    },
+                    }
                 };
             }
 
@@ -497,7 +559,7 @@ mod tests {
     use super::super::walk::{DirWalker, Node};
     use super::*;
 
-    use super::super::util::semaphore::{SemaphoreBuilder, SmallSemaphore, LargeSemaphore};
+    use super::super::util::semaphore::{LargeSemaphore, SemaphoreBuilder, SmallSemaphore};
 
     fn new_semaphore() -> (SmallSemaphore, LargeSemaphore) {
         SemaphoreBuilder::new()
@@ -507,9 +569,7 @@ mod tests {
     }
 
     async fn collect_nodes<P: AsRef<Path>>(paths: &[P]) -> Vec<Node> {
-        DirWalker::new()
-            .walk(paths)
-            .collect().await
+        DirWalker::new().walk(paths).collect().await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -524,7 +584,9 @@ mod tests {
         find_dups(nodes, sem_small, sem_large, dups_tx, uniqs_tx, false);
 
         let uniqs = ReceiverStream::new(uniqs_rx).collect::<Vec<Node>>().await;
-        let dups = ReceiverStream::new(dups_rx).collect::<Vec<Vec<Node>>>().await;
+        let dups = ReceiverStream::new(dups_rx)
+            .collect::<Vec<Vec<Node>>>()
+            .await;
 
         assert_eq!(dups.len(), 1);
         assert_eq!(dups[0].len(), 3);
@@ -543,7 +605,9 @@ mod tests {
         find_dups(nodes, sem_small, sem_large, dups_tx, uniqs_tx, false);
 
         let uniqs = ReceiverStream::new(uniqs_rx).collect::<Vec<Node>>().await;
-        let dups = ReceiverStream::new(dups_rx).collect::<Vec<Vec<Node>>>().await;
+        let dups = ReceiverStream::new(dups_rx)
+            .collect::<Vec<Vec<Node>>>()
+            .await;
 
         assert_eq!(dups.len(), 0);
         assert_eq!(uniqs.len(), 3);
@@ -560,7 +624,9 @@ mod tests {
         find_dups(nodes, sem_small, sem_large, dups_tx, uniqs_tx, false);
 
         let uniqs = ReceiverStream::new(uniqs_rx).collect::<Vec<Node>>().await;
-        let dups = ReceiverStream::new(dups_rx).collect::<Vec<Vec<Node>>>().await;
+        let dups = ReceiverStream::new(dups_rx)
+            .collect::<Vec<Vec<Node>>>()
+            .await;
 
         assert_eq!(dups.len(), 0);
         assert_eq!(uniqs.len(), 4);
@@ -577,7 +643,9 @@ mod tests {
         find_dups(nodes, sem_small, sem_large, dups_tx, uniqs_tx, false);
 
         let uniqs = ReceiverStream::new(uniqs_rx).collect::<Vec<Node>>().await;
-        let dups = ReceiverStream::new(dups_rx).collect::<Vec<Vec<Node>>>().await;
+        let dups = ReceiverStream::new(dups_rx)
+            .collect::<Vec<Vec<Node>>>()
+            .await;
 
         assert_eq!(dups.len(), 1);
         assert_eq!(dups[0].len(), 3);
@@ -596,7 +664,9 @@ mod tests {
         find_dups(nodes, sem_small, sem_large, dups_tx, uniqs_tx, false);
 
         let uniqs = ReceiverStream::new(uniqs_rx).collect::<Vec<Node>>().await;
-        let dups = ReceiverStream::new(dups_rx).collect::<Vec<Vec<Node>>>().await;
+        let dups = ReceiverStream::new(dups_rx)
+            .collect::<Vec<Vec<Node>>>()
+            .await;
 
         assert_eq!(dups.len(), 1);
         assert_eq!(dups[0].len(), 3);

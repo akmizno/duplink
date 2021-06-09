@@ -26,7 +26,11 @@ impl Entry {
             return Ok(None);
         }
 
-        Ok(Some(Entry::new(path, meta.len(), meta.permissions().readonly())))
+        Ok(Some(Entry::new(
+            path,
+            meta.len(),
+            meta.permissions().readonly(),
+        )))
     }
 
     #[allow(dead_code)]
@@ -36,7 +40,7 @@ impl Entry {
             let westr = format!("{}", we);
             let err = match we.into_io_error() {
                 None => io::Error::new(io::ErrorKind::Other, westr),
-                Some(e) => e
+                Some(e) => e,
             };
             return Err(err);
         }
@@ -46,7 +50,11 @@ impl Entry {
             return Ok(None);
         }
 
-        Ok(Some(Entry::new(d.path(), meta.len(), meta.permissions().readonly())))
+        Ok(Some(Entry::new(
+            d.path(),
+            meta.len(),
+            meta.permissions().readonly(),
+        )))
     }
 
     pub fn new<P: AsRef<Path>>(p: P, len: u64, readonly: bool) -> Self {
@@ -56,7 +64,6 @@ impl Entry {
             readonly,
         }
     }
-
 }
 impl FileAttr for Entry {
     fn size(&self) -> u64 {
@@ -134,22 +141,30 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_ne() {
-        let e1 = Entry::from_path("files/small-uniques/unique1").unwrap().unwrap();
-        let e2 = Entry::from_path("files/small-uniques/unique2").unwrap().unwrap();
+        let e1 = Entry::from_path("files/small-uniques/unique1")
+            .unwrap()
+            .unwrap();
+        let e2 = Entry::from_path("files/small-uniques/unique2")
+            .unwrap()
+            .unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_small() {
-        let e = Entry::from_path("files/small-uniques/unique1").unwrap().unwrap();
+        let e = Entry::from_path("files/small-uniques/unique1")
+            .unwrap()
+            .unwrap();
         let f = e.fast_digest().await.unwrap();
         let d = e.digest().await.unwrap();
         assert_eq!(f, d);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_large() {
-        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
         let f = e.fast_digest().await.unwrap();
         let d = e.digest().await.unwrap();
         assert_ne!(f, d);
@@ -174,22 +189,34 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn digest_ne() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e1 = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k")
+            .unwrap()
+            .unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_eq() {
-        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let p = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
         assert!(e.eq_content(&p).await.unwrap());
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_ne() {
-        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let p = Entry::from_path("files/large-uniques/fill_ff_16k")
+            .unwrap()
+            .unwrap();
         assert!(!e.eq_content(&p).await.unwrap());
     }
 }

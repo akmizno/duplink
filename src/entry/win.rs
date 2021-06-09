@@ -55,7 +55,7 @@ impl FileAttr for Entry {
     fn dev(&self) -> Option<u64> {
         match self.vol {
             None => None,
-            Some(v) => Some(v as u64)
+            Some(v) => Some(v as u64),
         }
     }
     fn ino(&self) -> Option<u64> {
@@ -118,8 +118,12 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_ne() {
-        let e1 = Entry::from_path("files/small-uniques/unique1").unwrap().unwrap();
-        let e2 = Entry::from_path("files/small-uniques/unique2").unwrap().unwrap();
+        let e1 = Entry::from_path("files/small-uniques/unique1")
+            .unwrap()
+            .unwrap();
+        let e2 = Entry::from_path("files/small-uniques/unique2")
+            .unwrap()
+            .unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
@@ -144,22 +148,34 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn digest_ne() {
-        let e1 = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e1 = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let e2 = Entry::from_path("files/large-uniques/fill_ff_16k")
+            .unwrap()
+            .unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_eq() {
-        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let p = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
         assert!(e.eq_content(&p).await.unwrap());
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_ne() {
-        let e = Entry::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = Entry::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e = Entry::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let p = Entry::from_path("files/large-uniques/fill_ff_16k")
+            .unwrap()
+            .unwrap();
         assert!(!e.eq_content(&p).await.unwrap());
     }
 }

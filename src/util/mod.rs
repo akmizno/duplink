@@ -3,7 +3,11 @@ use itertools::Itertools;
 
 pub mod semaphore;
 
-pub(crate) fn group_by_key_map<T, V, K, F, M>(items: Vec<T>, mut cmp: F, mut mapper: M) -> Vec<Vec<V>>
+pub(crate) fn group_by_key_map<T, V, K, F, M>(
+    items: Vec<T>,
+    mut cmp: F,
+    mut mapper: M,
+) -> Vec<Vec<V>>
 where
     K: Ord,
     F: FnMut(&T) -> K,
@@ -13,7 +17,8 @@ where
         return Vec::new();
     }
 
-    items.into_iter()
+    items
+        .into_iter()
         .sorted_unstable_by_key(|i| cmp(i))
         .group_by(|i| cmp(i))
         .into_iter()
@@ -26,7 +31,7 @@ where
     K: Ord,
     F: FnMut(&T) -> K,
 {
-    group_by_key_map(items, cmp, |i|i)
+    group_by_key_map(items, cmp, |i| i)
 }
 
 pub const THRESHOLD: u64 = 8192;

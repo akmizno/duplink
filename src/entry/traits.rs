@@ -1,10 +1,10 @@
 use async_trait::async_trait;
+use memmap::MmapOptions;
 use std::hash::Hasher;
 use std::io;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
 use twox_hash::XxHash64;
-use memmap::MmapOptions;
 
 use crate::util::THRESHOLD;
 const BUFSIZE: usize = THRESHOLD as usize;
@@ -45,7 +45,7 @@ fn calc_hash_mmap(p: PathBuf, size: usize) -> io::Result<u64> {
         return Ok(h.finish());
     }
     let f = std::fs::File::open(p)?;
-    let mmap = unsafe{ MmapOptions::new().map(&f)? };
+    let mmap = unsafe { MmapOptions::new().map(&f)? };
     h.write(&mmap[..size]);
 
     Ok(h.finish())
@@ -55,7 +55,7 @@ async fn calc_hash<P: AsRef<Path>>(path: P, size: usize) -> io::Result<u64> {
     if size <= BUFSIZE {
         calc_hash_async(p, size).await
     } else {
-        tokio::task::block_in_place(move|| calc_hash_mmap(p, size))
+        tokio::task::block_in_place(move || calc_hash_mmap(p, size))
     }
 }
 #[async_trait]
@@ -71,7 +71,6 @@ pub trait Digest: FileAttr {
         calc_hash(self.path(), self.size() as usize).await
     }
 }
-
 
 // make uninitialized buffer
 fn make_buffer() -> Box<[u8]> {
@@ -106,8 +105,8 @@ async fn eq_content_async(p1: PathBuf, p2: PathBuf) -> io::Result<bool> {
 fn eq_content_mmap(p1: PathBuf, p2: PathBuf) -> io::Result<bool> {
     let f1 = std::fs::File::open(p1)?;
     let f2 = std::fs::File::open(p2)?;
-    let mmap1 = unsafe{ MmapOptions::new().map(&f1)? };
-    let mmap2 = unsafe{ MmapOptions::new().map(&f2)? };
+    let mmap1 = unsafe { MmapOptions::new().map(&f1)? };
+    let mmap2 = unsafe { MmapOptions::new().map(&f2)? };
     Ok(mmap1[..] == mmap2[..])
 }
 #[async_trait]
@@ -119,7 +118,7 @@ pub trait ContentEq: FileAttr {
         if self.size() as usize <= BUFSIZE {
             eq_content_async(self_path, other_path).await
         } else {
-            tokio::task::block_in_place(move|| eq_content_mmap(self_path, other_path))
+            tokio::task::block_in_place(move || eq_content_mmap(self_path, other_path))
         }
     }
 }

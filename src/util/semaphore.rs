@@ -1,10 +1,9 @@
-use std::sync::Arc;
-use std::cmp;
 use fdlimit;
 use num_cpus;
+use std::cmp;
+use std::sync::Arc;
 
-
-const MIN_FDS: usize = 2;  // Two files will be opened at a time to compare them.
+const MIN_FDS: usize = 2; // Two files will be opened at a time to compare them.
 
 fn system_fdlimit() -> usize {
     const MAX: usize = std::usize::MAX;
@@ -14,16 +13,16 @@ fn system_fdlimit() -> usize {
     }
 }
 fn max_concurrency(user_limit: Option<usize>) -> usize {
-    let default_concurrency = 10*num_cpus::get();
+    let default_concurrency = 10 * num_cpus::get();
     cmp::max(
         MIN_FDS,
         cmp::min(
-            system_fdlimit() - 3,  // 3 = (stdin, stdout, stderr)
+            system_fdlimit() - 3, // 3 = (stdin, stdout, stderr)
             cmp::min(
                 default_concurrency,
-                user_limit.unwrap_or(default_concurrency)
-            )
-        )
+                user_limit.unwrap_or(default_concurrency),
+            ),
+        ),
     )
 }
 
@@ -54,17 +53,20 @@ impl SemaphoreImpl {
         } else {
             None
         };
-        SemaphoreImpl{ normal, large }
+        SemaphoreImpl { normal, large }
     }
     async fn acquire_small_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
         let normal = self.normal.acquire_many(n).await?;
-        Ok(SemaphorePermit{ normal, large: None })
+        Ok(SemaphorePermit {
+            normal,
+            large: None,
+        })
     }
     async fn acquire_large_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
         // Acquire lock from large prior to normal.
         let large = match &self.large {
             None => None,
-            Some(mtx) => Some(mtx.lock().await)
+            Some(mtx) => Some(mtx.lock().await),
         };
         let normal = self.normal.acquire_many(n).await?;
         Ok(SemaphorePermit { normal, large })
@@ -94,7 +96,6 @@ impl Semaphore {
 
 pub type SmallSemaphore = Semaphore;
 pub type LargeSemaphore = Semaphore;
-
 
 pub struct SemaphoreBuilder {
     max_concurrency: Option<usize>,

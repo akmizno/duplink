@@ -1,15 +1,15 @@
 use async_trait::async_trait;
-use tokio::io;
-use std::path::Path;
 use futures::stream::StreamExt;
-use walkdir::WalkDir;
-use tokio::task;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
-use log;
 use itertools::Itertools;
+use log;
+use std::path::Path;
+use tokio::io;
+use tokio::sync::mpsc;
+use tokio::task;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+use walkdir::WalkDir;
 
-use super::entry::{Entry, FileAttr, ContentEq, Digest};
+use super::entry::{ContentEq, Digest, Entry, FileAttr};
 
 fn have_all_same_dev(entries: &[Entry]) -> bool {
     if entries.len() < 2 {
@@ -29,7 +29,9 @@ impl Node {
     fn new(entries: Vec<Entry>) -> Self {
         assert!(!entries.is_empty());
         debug_assert!(have_all_same_dev(&entries));
-        Node{ entries: Box::new(entries) }
+        Node {
+            entries: Box::new(entries),
+        }
     }
 
     #[allow(dead_code)]
@@ -54,9 +56,7 @@ impl Node {
 
     fn entry(&self) -> &Entry {
         debug_assert!(!self.entries.is_empty());
-        unsafe {
-            self.entries.get_unchecked(0)
-        }
+        unsafe { self.entries.get_unchecked(0) }
     }
 }
 
@@ -95,16 +95,15 @@ fn make_walkdir_single<P: AsRef<Path>>(
     min_depth: Option<usize>,
     max_depth: Option<usize>,
     follow_links: bool,
-    ) -> WalkDir {
-    let w = WalkDir::new(root)
-        .follow_links(follow_links);
+) -> WalkDir {
+    let w = WalkDir::new(root).follow_links(follow_links);
     let w = match min_depth {
         None => w,
-        Some(d) => w.min_depth(d)
+        Some(d) => w.min_depth(d),
     };
     let w = match max_depth {
         None => w,
-        Some(d) => w.max_depth(d)
+        Some(d) => w.max_depth(d),
     };
 
     w
@@ -115,7 +114,7 @@ fn into_entry_stream(wds: Vec<WalkDir>) -> mpsc::UnboundedReceiver<Entry> {
 
     for wd in wds.into_iter() {
         let tx = tx.clone();
-        task::spawn_blocking(move ||{
+        task::spawn_blocking(move || {
             for d in wd.into_iter() {
                 if let walkdir::Result::Err(e) = d {
                     log::warn!("{}", e);
@@ -151,27 +150,26 @@ struct DevInoCmp {
 }
 impl DevInoCmp {
     fn new(entry: &Entry) -> Self {
-        DevInoCmp{ino: entry.ino(), dev: entry.dev()}
+        DevInoCmp {
+            ino: entry.ino(),
+            dev: entry.dev(),
+        }
     }
 }
 impl PartialEq for DevInoCmp {
     fn eq(&self, other: &Self) -> bool {
-        if self.ino.is_none()
-            || self.dev.is_none()
-            || other.dev.is_none()
-            || other.dev.is_none() {
-                return false;
+        if self.ino.is_none() || self.dev.is_none() || other.dev.is_none() || other.dev.is_none() {
+            return false;
         }
 
-        (self.ino.unwrap(), self.dev.unwrap())
-            == (other.ino.unwrap(), self.dev.unwrap())
+        (self.ino.unwrap(), self.dev.unwrap()) == (other.ino.unwrap(), self.dev.unwrap())
     }
 }
 impl Eq for DevInoCmp {}
 
-
 fn entries2nodes(entries: Vec<Entry>) -> Vec<Node> {
-    entries.into_iter()
+    entries
+        .into_iter()
         .sorted_unstable_by_key(|e| DevInoCmp::new(&e))
         .group_by(|e| DevInoCmp::new(&e))
         .into_iter()
@@ -180,9 +178,7 @@ fn entries2nodes(entries: Vec<Entry>) -> Vec<Node> {
         .collect_vec()
 }
 
-
 pub type NodeStream = ReceiverStream<Node>;
-
 
 pub struct DirWalker {
     min_depth: Option<usize>,
@@ -192,7 +188,11 @@ pub struct DirWalker {
 
 impl DirWalker {
     pub fn new() -> DirWalker {
-        DirWalker{ min_depth: None, max_depth: None, follow_links: true }
+        DirWalker {
+            min_depth: None,
+            max_depth: None,
+            follow_links: true,
+        }
     }
     pub fn min_depth(mut self, depth: Option<usize>) -> DirWalker {
         self.min_depth = depth;
@@ -208,7 +208,8 @@ impl DirWalker {
     }
 
     pub fn walk<P: AsRef<Path>>(self, roots: &[P]) -> NodeStream {
-        let wds = roots.iter()
+        let wds = roots
+            .iter()
             .map(|p| make_walkdir_single(p, self.min_depth, self.max_depth, self.follow_links))
             .collect_vec();
 
@@ -232,16 +233,15 @@ impl DirWalker {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-    use itertools::Itertools;
     use futures::stream::StreamExt;
+    use itertools::Itertools;
+    use std::path::{Path, PathBuf};
 
-    use crate::entry::{Entry, ContentEq, Digest, FileAttr};
-    use super::Node;
     use super::DirWalker;
+    use super::Node;
+    use crate::entry::{ContentEq, Digest, Entry, FileAttr};
 
     fn canonical_path<P: AsRef<Path>>(p: P) -> PathBuf {
         p.as_ref().canonicalize().unwrap()
@@ -318,8 +318,12 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn fast_digest_ne() {
-        let e1 = Node::from_path("files/small-uniques/unique1").unwrap().unwrap();
-        let e2 = Node::from_path("files/small-uniques/unique2").unwrap().unwrap();
+        let e1 = Node::from_path("files/small-uniques/unique1")
+            .unwrap()
+            .unwrap();
+        let e2 = Node::from_path("files/small-uniques/unique2")
+            .unwrap()
+            .unwrap();
         let d1 = e1.fast_digest().await.unwrap();
         let d2 = e2.fast_digest().await.unwrap();
         assert_ne!(d1, d2);
@@ -343,22 +347,34 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn digest_ne() {
-        let e1 = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let e2 = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e1 = Node::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let e2 = Node::from_path("files/large-uniques/fill_ff_16k")
+            .unwrap()
+            .unwrap();
         let d1 = e1.digest().await.unwrap();
         let d2 = e2.digest().await.unwrap();
         assert_ne!(d1, d2);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_eq() {
-        let e = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
+        let e = Node::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let p = Node::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
         assert!(e.eq_content(&p).await.unwrap());
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn content_ne() {
-        let e = Node::from_path("files/large-uniques/fill_00_16k").unwrap().unwrap();
-        let p = Node::from_path("files/large-uniques/fill_ff_16k").unwrap().unwrap();
+        let e = Node::from_path("files/large-uniques/fill_00_16k")
+            .unwrap()
+            .unwrap();
+        let p = Node::from_path("files/large-uniques/fill_ff_16k")
+            .unwrap()
+            .unwrap();
         assert!(!e.eq_content(&p).await.unwrap());
     }
 
@@ -367,7 +383,8 @@ mod tests {
         let p = "files/small-uniques";
         let paths = DirWalker::new()
             .walk(&[p])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -382,7 +399,8 @@ mod tests {
         let p = "files/nonexist";
         let paths = DirWalker::new()
             .walk(&[p])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .collect_vec();
 
@@ -391,13 +409,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_multiple() {
         let p = "files/small-uniques";
-        let nodes = DirWalker::new()
-            .walk(&[p, p])
-            .collect::<Vec<Node>>().await;
+        let nodes = DirWalker::new().walk(&[p, p]).collect::<Vec<Node>>().await;
 
         // println!("{:?}", nodes);
 
-        let paths = nodes.into_iter()
+        let paths = nodes
+            .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
@@ -413,7 +430,8 @@ mod tests {
         let p2 = "files/large-uniques";
         let paths = DirWalker::new()
             .walk(&[p1, p2])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -432,10 +450,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_follow_links() {
         let p = "files/softlink-dir";
-        let nodes = DirWalker::new()
-            .walk(&[p])
-            .collect::<Vec<Node>>().await;
-        let paths = nodes.into_iter()
+        let nodes = DirWalker::new().walk(&[p]).collect::<Vec<Node>>().await;
+        let paths = nodes
+            .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
@@ -450,7 +467,8 @@ mod tests {
         let paths = DirWalker::new()
             .follow_links(false)
             .walk(&[p])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -464,13 +482,16 @@ mod tests {
         let paths = DirWalker::new()
             .min_depth(Some(4))
             .walk(&[p])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
 
         assert_eq!(paths.len(), 1);
-        assert!(paths.contains(&canonical_path("files/depth-uniques/level1/level2/level3/unique3")));
+        assert!(paths.contains(&canonical_path(
+            "files/depth-uniques/level1/level2/level3/unique3"
+        )));
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn walk_dir_max_depth() {
@@ -478,7 +499,8 @@ mod tests {
         let paths = DirWalker::new()
             .max_depth(Some(1))
             .walk(&[p])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
@@ -501,18 +523,18 @@ mod tests {
         let dir = make_tempdir();
         let paths = DirWalker::new()
             .walk(&[dir.path()])
-            .collect::<Vec<Node>>().await
+            .collect::<Vec<Node>>()
+            .await
             .into_iter()
             .map(|n| canonical_path(n.path()))
             .collect_vec();
-
 
         #[cfg(unix)]
         assert_eq!(paths.len(), 1);
 
         assert!(
             paths.contains(&canonical_path(dir.path().join("original")))
-            || paths.contains(&canonical_path(dir.path().join("hardlink")))
-            );
+                || paths.contains(&canonical_path(dir.path().join("hardlink")))
+        );
     }
 }
