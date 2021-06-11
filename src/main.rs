@@ -111,7 +111,6 @@ fn build_walker(matches: &ArgMatches) -> walk::DirWalker {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
     let matches = App::new("duplink")
         .setting(AppSettings::ColoredHelp)
         .author("Akira MIZUNO, akmizno@gmail.com")
@@ -169,7 +168,31 @@ async fn main() {
             .required(false)
             .help("Find unique file instead of duplicates."))
 
+        .group(ArgGroup::with_name("log-group")
+            .args(&["debug", "quiet"])
+            .required(false))
+        .arg(Arg::with_name("debug")
+            .long("debug")
+            .short("d")
+            .required(false)
+            .help("Show debug messages."))
+        .arg(Arg::with_name("quiet")
+            .long("quiet")
+            .short("q")
+            .required(false)
+            .help("Disable any message outputs."))
         .get_matches();
+
+    let mut logger_builder = env_logger::Builder::new();
+    let logger_builder = if matches.is_present("debug") {
+        logger_builder.filter_level(log::LevelFilter::max())
+    } else if matches.is_present("quiet") {
+        logger_builder.filter_level(log::LevelFilter::Off)
+    } else {
+        logger_builder.filter_level(log::LevelFilter::Warn)
+    };
+    logger_builder.parse_env("DUPLINK_LOG")
+        .init();
 
     let paths: Vec<PathBuf> = matches
         .values_of("PATH")
