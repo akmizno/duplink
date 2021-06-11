@@ -11,7 +11,7 @@ fn system_fdlimit() -> usize {
     }
 }
 fn max_concurrency(user_limit: Option<usize>) -> usize {
-    let default_concurrency = 10 * num_cpus::get();
+    let default_concurrency = 4 * num_cpus::get();
     cmp::max(
         MIN_FDS,
         cmp::min(
