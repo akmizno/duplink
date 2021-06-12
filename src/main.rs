@@ -18,6 +18,8 @@ pub mod walk;
 
 use api::{DuplicateStream, UniqueStream};
 use entry::FileAttr;
+use util::progress::ProgressPipeBuilder;
+use walk::Node;
 
 fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
@@ -168,9 +170,14 @@ async fn main() {
             .required(false)
             .help("Find unique file instead of duplicates."))
 
-        .group(ArgGroup::with_name("log-group")
-            .args(&["debug", "quiet"])
+        .group(ArgGroup::with_name("message-group")
+            .args(&["progress", "debug", "quiet"])
             .required(false))
+        .arg(Arg::with_name("progress")
+            .long("progress")
+            .short("p")
+            .required(false)
+            .help("Show progress bar."))
         .arg(Arg::with_name("debug")
             .long("debug")
             .short("d")
@@ -181,6 +188,7 @@ async fn main() {
             .short("q")
             .required(false)
             .help("Disable any message outputs."))
+
         .get_matches();
 
     let mut logger_builder = env_logger::Builder::new();
@@ -203,10 +211,21 @@ async fn main() {
 
     let (sem_small, sem_large) = build_semaphore(&matches);
 
-    let nodes = build_walker(&matches).walk(&paths).collect().await;
+    let nodes: Vec<Node> = build_walker(&matches).walk(&paths).collect().await;
+    let nodes_len = nodes.len();
 
     let duplink = api::DupLink::new(sem_small, sem_large);
     let (dups, uniqs) = duplink.find_dups(nodes);
+
+    let (dups, uniqs) = if matches.is_present("progress") {
+        let mut progress_pipe = ProgressPipeBuilder::new(nodes_len as u64);
+        let dups = progress_pipe.add_vec_stream(dups);
+        let uniqs = progress_pipe.add_stream(uniqs);
+        progress_pipe.build();
+        (dups, uniqs)
+    } else {
+        (dups, uniqs)
+    };
 
     let (dup_out, uniq_out) = build_output_writers(&matches);
 

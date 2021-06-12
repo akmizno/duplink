@@ -2,6 +2,7 @@
 use itertools::Itertools;
 
 pub mod semaphore;
+pub mod progress;
 
 pub(crate) fn group_by_key_map<T, V, K, F, M>(
     items: Vec<T>,
