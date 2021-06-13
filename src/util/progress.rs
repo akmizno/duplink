@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 pub(crate) struct ProgressPipeBuilder {
     length: u64,
-    // show: bool,
 
     bar_tx: mpsc::Sender<u64>,
     bar_rx: mpsc::Receiver<u64>,

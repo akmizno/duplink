@@ -7,8 +7,6 @@ use tokio_stream::StreamExt;
 
 use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
-// use std::io::{stdout, Write};
-// use std::io::BufWriter;
 
 pub mod api;
 pub mod entry;
@@ -122,7 +120,6 @@ async fn main() {
         .author("Akira MIZUNO, akmizno@gmail.com")
         .version(crate_version!())
         .about("A tool for finding duplicate files and de-duplicating them.")
-        // .after_help(console::extra_doc().as_ref())
 
         .arg(Arg::with_name("PATH")
             .multiple(true)
