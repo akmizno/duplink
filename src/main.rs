@@ -215,6 +215,20 @@ async fn main() {
         .parse_env("DUPLINK_LOG")
         .init();
 
+    let max_depth = if matches.is_present("max-depth") {
+        Some(value_t_or_exit!(matches, "max-depth", usize))
+    } else {
+        None
+    };
+
+    let min_depth = if matches.is_present("min-depth") {
+        Some(value_t_or_exit!(matches, "min-depth", usize))
+    } else {
+        None
+    };
+
+    let follow = !matches.is_present("no-follow");
+
     let paths: Vec<PathBuf> = matches
         .values_of("PATH")
         .unwrap()
@@ -224,7 +238,12 @@ async fn main() {
 
     let (sem_small, sem_large) = build_semaphore(&matches);
 
-    let nodes: Vec<Node> = build_walker(&matches).walk(&paths).collect().await;
+    let nodes: Vec<Node> = build_walker(&matches)
+        .min_depth(min_depth)
+        .max_depth(max_depth)
+        .follow_links(follow)
+        .walk(&paths)
+        .collect().await;
     let nodes_len = nodes.len();
 
     let duplink = api::DupLink::new(sem_small, sem_large);
