@@ -30,6 +30,7 @@ fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHan
                 .await
                 .unwrap();
         }
+        out.flush().await.unwrap();
     })
 }
 fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHandle<()> {
@@ -42,6 +43,7 @@ fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHa
             }
             out.write("\n".as_bytes()).await.unwrap();
         }
+        out.flush().await.unwrap();
     })
 }
 
@@ -63,6 +65,13 @@ impl Output {
             Output::Sink(o) => o.write(src).await,
             Output::Stdout(o) => o.write(src).await,
             Output::File(o) => o.write(src).await,
+        }
+    }
+    async fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Output::Sink(o) => o.flush().await,
+            Output::Stdout(o) => o.flush().await,
+            Output::File(o) => o.flush().await,
         }
     }
 }
