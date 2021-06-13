@@ -21,6 +21,10 @@ use entry::FileAttr;
 use util::progress::ProgressPipeBuilder;
 use walk::Node;
 
+fn is_in_tty() -> bool {
+    atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdout)
+}
+
 fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(node) = uniqs.next().await {
@@ -170,36 +174,45 @@ async fn main() {
             .required(false)
             .help("Find unique file instead of duplicates."))
 
-        .group(ArgGroup::with_name("message-group")
-            .args(&["progress", "debug", "quiet"])
+        .group(ArgGroup::with_name("progress-group")
+            .args(&["progress", "debug"])
+            .required(false))
+        .group(ArgGroup::with_name("quiet-group")
+            .args(&["quiet", "debug"])
             .required(false))
         .arg(Arg::with_name("progress")
             .long("progress")
             .short("p")
             .required(false)
             .help("Show progress bar."))
-        .arg(Arg::with_name("debug")
-            .long("debug")
-            .short("d")
-            .required(false)
-            .help("Show debug messages."))
         .arg(Arg::with_name("quiet")
             .long("quiet")
             .short("q")
             .required(false)
             .help("Disable any message outputs."))
+        .arg(Arg::with_name("debug")
+            .long("debug")
+            .short("d")
+            .required(false)
+            .help("Show debug messages."))
 
         .get_matches();
 
-    let mut logger_builder = env_logger::Builder::new();
-    let logger_builder = if matches.is_present("debug") {
-        logger_builder.filter_level(log::LevelFilter::max())
-    } else if matches.is_present("quiet") {
-        logger_builder.filter_level(log::LevelFilter::Off)
+    let show_progress = matches.is_present("progress") && is_in_tty();
+    let no_msg = show_progress || matches.is_present("quiet");
+    let debug = matches.is_present("debug");
+
+    let log_level = if debug {
+        log::LevelFilter::max()
+    } else if no_msg {
+        log::LevelFilter::Off
     } else {
-        logger_builder.filter_level(log::LevelFilter::Warn)
+        log::LevelFilter::Warn
     };
-    logger_builder.parse_env("DUPLINK_LOG")
+
+    env_logger::Builder::new()
+        .filter_level(log_level)
+        .parse_env("DUPLINK_LOG")
         .init();
 
     let paths: Vec<PathBuf> = matches
@@ -217,7 +230,7 @@ async fn main() {
     let duplink = api::DupLink::new(sem_small, sem_large);
     let (dups, uniqs) = duplink.find_dups(nodes);
 
-    let (dups, uniqs) = if matches.is_present("progress") {
+    let (dups, uniqs) = if show_progress {
         let mut progress_pipe = ProgressPipeBuilder::new(nodes_len as u64);
         let dups = progress_pipe.add_vec_stream(dups);
         let uniqs = progress_pipe.add_stream(uniqs);
