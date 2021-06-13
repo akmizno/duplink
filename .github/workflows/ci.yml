@@ -21,7 +21,10 @@ jobs:
           - stable
           - beta
           - nightly
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            rust: nightly
 
     steps:
     - uses: actions/checkout@v2
@@ -35,5 +38,5 @@ jobs:
     - name: Build
       run: cargo build
     - name: Run tests
-      run: cargo test
+      run: cargo test -- --show-output
       continue-on-error: ${{ matrix.rust == 'nightly' }}
