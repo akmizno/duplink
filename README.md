@@ -18,7 +18,7 @@ Find duplicate files as follows,
 $ duplink PATH
 ```
 
-On HDDs, use --hdd since duplink is optimized for SSDs by default.
+Use `--hdd` if you will run duplink on HDDs. By default, duplink is optimized for SSDs.
 ```sh
 $ duplink --hdd /path/to/hdd
 ```
