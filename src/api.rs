@@ -23,6 +23,11 @@ impl DupLink {
         }
     }
 
+    pub fn ignore_dev(mut self, ignore: bool) -> Self {
+        self.ignore_dev = ignore;
+        self
+    }
+
     pub fn find_dups(self, nodes: Vec<Node>) -> (DuplicateStream, UniqueStream) {
         let (dups_tx, dups_rx) = mpsc::channel(nodes.len());
         let (uniqs_tx, uniqs_rx) = mpsc::channel(nodes.len());

@@ -149,6 +149,12 @@ async fn main() {
             .takes_value(true)
             .help("Limit number of open files at a same time"))
 
+        .arg(Arg::with_name("ignore-filesystem")
+            .long("ignore-filesystem")
+            .required(false)
+            .takes_value(false)
+            .help("Detect duplicate files across multiple file systems."))
+
         .group(ArgGroup::with_name("follow-group")
             .args(&["follow", "no-follow"])
             .required(false))
@@ -235,6 +241,8 @@ async fn main() {
 
     let follow = !matches.is_present("no-follow");
 
+    let ignore_dev = matches.is_present("ignore-filesystem");
+
     let paths: Vec<PathBuf> = matches
         .values_of("PATH")
         .unwrap()
@@ -252,7 +260,8 @@ async fn main() {
         .collect().await;
     let nodes_len = nodes.len();
 
-    let duplink = api::DupLink::new(sem_small, sem_large);
+    let duplink = api::DupLink::new(sem_small, sem_large)
+        .ignore_dev(ignore_dev);
     let (dups, uniqs) = duplink.find_dups(nodes);
 
     let (dups, uniqs) = if show_progress {
