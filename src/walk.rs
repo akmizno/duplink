@@ -55,6 +55,10 @@ impl Node {
         debug_assert!(!self.entries.is_empty());
         unsafe { self.entries.get_unchecked(0) }
     }
+
+    pub fn into_entries(self) -> Vec<Entry> {
+        self.entries
+    }
 }
 
 impl FileAttr for Node {
