@@ -1,5 +1,5 @@
 mod traits;
-pub use traits::{ContentEq, Digest, FileAttr};
+pub use traits::{ContentEq, Digest, FileAttr, LinkTo};
 
 mod generic;
 

@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use walkdir::DirEntry;
 
-use super::{ContentEq, Digest, FileAttr};
+use super::{ContentEq, Digest, FileAttr, LinkTo};
 
 #[derive(Debug)]
 pub struct Entry {
@@ -86,6 +86,8 @@ impl FileAttr for Entry {
 impl Digest for Entry {}
 
 impl ContentEq for Entry {}
+
+impl LinkTo for Entry {}
 
 #[cfg(test)]
 mod tests {
