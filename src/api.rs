@@ -6,8 +6,8 @@ use super::util::semaphore::Semaphore;
 use super::walk::Node;
 
 pub type DupLinkStream<T> = ReceiverStream<T>;
-pub type DuplicateStream = ReceiverStream<Vec<Node>>;
-pub type UniqueStream = ReceiverStream<Node>;
+pub type DuplicateStream = DupLinkStream<Vec<Node>>;
+pub type UniqueStream = DupLinkStream<Node>;
 
 pub struct DupLink {
     sem_small: Semaphore,
