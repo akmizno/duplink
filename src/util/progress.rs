@@ -5,63 +5,65 @@ use tokio::sync::mpsc;
 use tokio::sync::Notify;
 use std::sync::Arc;
 
-pub(crate) struct ProgressPipeBuilder {
+pub(crate) struct ProgressBar(indicatif::ProgressBar);
+
+pub(crate) struct ProgressBarBuilder {
     length: u64,
 
     bar_tx: mpsc::Sender<u64>,
     bar_rx: mpsc::Receiver<u64>,
 
     stream_count: usize,
-    stream_task_tx: mpsc::Sender<()>,
-    stream_task_rx: mpsc::Receiver<()>,
+    inc_finished: Arc<Notify>,
 
     bar_finished: Arc<Notify>,
 }
 
-impl ProgressPipeBuilder {
+impl ProgressBarBuilder {
     pub(crate) fn new(length: u64) -> Self {
         let (bar_tx, bar_rx) = mpsc::channel(length as usize);
-        let (stream_task_tx, stream_task_rx) = mpsc::channel(1);
+        let inc_finished = Arc::new(Notify::new());
         let bar_finished = Arc::new(Notify::new());
 
-        ProgressPipeBuilder {
+        ProgressBarBuilder {
             length,
             bar_tx,
             bar_rx,
             stream_count: 0,
-            stream_task_tx,
-            stream_task_rx,
+            inc_finished,
             bar_finished,
         }
     }
 
-    pub(crate) fn build(self) {
+    pub(crate) fn build(self) -> ProgressBar {
         let bar = indicatif::ProgressBar::new(self.length);
 
-        // Task for indicator incrementing.
+        // Task for incrementing progress bar.
         {
             let bar = bar.clone();
             let mut bar_rx = self.bar_rx;
-            let stream_task_tx = self.stream_task_tx;
+            let inc_finished = self.inc_finished.clone();
             task::spawn(async move {
                 while let Some(n) = bar_rx.recv().await {
                     bar.inc(n);
                 }
-                stream_task_tx.send(()).await.unwrap();
-                drop(stream_task_tx);
+                inc_finished.notify_waiters();
             });
         }
 
-        // Task for progress bar cleaning.
+        // Task for cleaning the progress bar.
         {
-            let mut stream_task_rx = self.stream_task_rx;
+            let bar = bar.clone();
+            let inc_finished = self.inc_finished;
             let bar_finished = self.bar_finished;
             task::spawn(async move {
-                while let Some(_) = stream_task_rx.recv().await {}
+                inc_finished.notified().await;
                 bar.finish_and_clear();
                 bar_finished.notify_waiters();
             });
         }
+
+        ProgressBar(bar)
     }
     fn add_stream_impl<T, F>(&mut self, mut s: ReceiverStream<T>, inc_num: F) -> ReceiverStream<T>
         where T: 'static + Send + std::fmt::Debug,
@@ -72,7 +74,6 @@ impl ProgressPipeBuilder {
         let (tx, rx) = mpsc::channel(self.length as usize);
 
         let bar_tx = self.bar_tx.clone();
-        let stream_task_tx = self.stream_task_tx.clone();
         let bar_finished = self.bar_finished.clone();
         task::spawn(async move {
             let mut buf = Vec::new();
@@ -85,10 +86,6 @@ impl ProgressPipeBuilder {
                 bar_tx.send(n).await.unwrap();
             }
             drop(bar_tx);
-
-            // Notify that the stream is ended.
-            stream_task_tx.send(()).await.unwrap();
-            drop(stream_task_tx);
 
             // Then, wait for the progress bar.
             bar_finished.notified().await;

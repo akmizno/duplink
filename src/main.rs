@@ -16,7 +16,7 @@ pub mod walk;
 
 use api::{DuplicateStream, UniqueStream};
 use entry::FileAttr;
-use util::progress::ProgressPipeBuilder;
+use util::progress::ProgressBarBuilder;
 use walk::Node;
 
 fn is_in_tty() -> bool {
@@ -291,10 +291,10 @@ async fn main() {
     let (dups, uniqs) = duplink.find_dups(nodes);
 
     let (dups, uniqs) = if show_progress {
-        let mut progress_pipe = ProgressPipeBuilder::new(nodes_len as u64);
-        let dups = progress_pipe.add_vec_stream(dups);
-        let uniqs = progress_pipe.add_stream(uniqs);
-        progress_pipe.build();
+        let mut progress_builder = ProgressBarBuilder::new(nodes_len as u64);
+        let dups = progress_builder.add_vec_stream(dups);
+        let uniqs = progress_builder.add_stream(uniqs);
+        let _ = progress_builder.build();
         (dups, uniqs)
     } else {
         (dups, uniqs)
