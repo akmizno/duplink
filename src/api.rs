@@ -5,6 +5,7 @@ use super::find;
 use super::util::semaphore::Semaphore;
 use super::walk::Node;
 
+pub type DupLinkStream<T> = ReceiverStream<T>;
 pub type DuplicateStream = ReceiverStream<Vec<Node>>;
 pub type UniqueStream = ReceiverStream<Node>;
 

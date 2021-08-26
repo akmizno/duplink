@@ -1,9 +1,11 @@
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tokio::task;
 use tokio::sync::mpsc;
 use tokio::sync::Notify;
 use std::sync::Arc;
+
+use crate::api::{DupLinkStream, DuplicateStream, UniqueStream};
+
 
 pub(crate) struct ProgressBar(indicatif::ProgressBar);
 
@@ -65,7 +67,7 @@ impl ProgressBarBuilder {
 
         ProgressBar(bar)
     }
-    fn add_stream_impl<T, F>(&mut self, mut s: ReceiverStream<T>, inc_num: F) -> ReceiverStream<T>
+    fn add_stream_impl<T, F>(&mut self, mut s: DupLinkStream<T>, inc_num: F) -> DupLinkStream<T>
         where T: 'static + Send + std::fmt::Debug,
               F: 'static + Send + Fn(&T) -> u64,
     {
@@ -96,15 +98,13 @@ impl ProgressBarBuilder {
             }
         });
 
-        ReceiverStream::new(rx)
+        DupLinkStream::new(rx)
     }
-    pub(crate) fn add_stream<T>(&mut self, s: ReceiverStream<T>) -> ReceiverStream<T>
-        where T: 'static + Send + std::fmt::Debug
+    pub(crate) fn add_uniq_stream(&mut self, s: UniqueStream) -> UniqueStream
     {
         self.add_stream_impl(s, |_| 1)
     }
-    pub(crate) fn add_vec_stream<T>(&mut self, s: ReceiverStream<Vec<T>>) -> ReceiverStream<Vec<T>>
-        where T: 'static + Send + std::fmt::Debug
+    pub(crate) fn add_dup_stream(&mut self, s: DuplicateStream) -> DuplicateStream
     {
         self.add_stream_impl(s, |v| v.len() as u64)
     }
