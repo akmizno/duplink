@@ -41,6 +41,6 @@ impl DupLink {
             self.ignore_dev,
         );
 
-        (ReceiverStream::new(dups_rx), ReceiverStream::new(uniqs_rx))
+        (DuplicateStream::new(dups_rx), UniqueStream::new(uniqs_rx))
     }
 }
