@@ -12,13 +12,12 @@ pub(crate) struct ProgressBar(indicatif::ProgressBar);
 pub(crate) struct ProgressBarBuilder {
     length: u64,
 
-    bar_tx: mpsc::Sender<u64>,
     bar_rx: mpsc::Receiver<u64>,
 
     bar_finished: Arc<Notify>,
 
-    dup_stream: Option<DuplicateStream>,
-    uniq_stream: Option<UniqueStream>,
+    dup_stream: DuplicateStream,
+    uniq_stream: UniqueStream,
 }
 
 impl ProgressBarBuilder {
@@ -26,22 +25,17 @@ impl ProgressBarBuilder {
         let (bar_tx, bar_rx) = mpsc::channel(length as usize);
         let bar_finished = Arc::new(Notify::new());
 
-        let mut builder = ProgressBarBuilder {
+
+        let dup_stream = Self::add_dup_stream(dup_stream, length as usize, bar_tx.clone(), bar_finished.clone());
+        let uniq_stream = Self::add_uniq_stream(uniq_stream, length as usize, bar_tx.clone(), bar_finished.clone());
+
+        ProgressBarBuilder {
             length,
-            bar_tx,
             bar_rx,
             bar_finished,
-            dup_stream: None,
-            uniq_stream: None,
-        };
-
-        let dup_stream = builder.add_dup_stream(dup_stream);
-        let uniq_stream = builder.add_uniq_stream(uniq_stream);
-
-        builder.dup_stream = Some(dup_stream);
-        builder.uniq_stream = Some(uniq_stream);
-
-        builder
+            dup_stream,
+            uniq_stream,
+        }
     }
 
     pub(crate) fn build(self) -> (ProgressBar, (DuplicateStream, UniqueStream)) {
@@ -61,16 +55,14 @@ impl ProgressBarBuilder {
             });
         }
 
-        (ProgressBar(bar), (self.dup_stream.unwrap(), self.uniq_stream.unwrap()))
+        (ProgressBar(bar), (self.dup_stream, self.uniq_stream))
     }
-    fn add_stream_impl<T, F>(&mut self, mut s: DupLinkStream<T>, inc_num: F) -> DupLinkStream<T>
+    fn add_stream_impl<T, F>(mut s: DupLinkStream<T>, max_length: usize, bar_tx: mpsc::Sender<u64>, bar_finished: Arc<Notify>, inc_num: F) -> DupLinkStream<T>
         where T: 'static + Send + std::fmt::Debug,
               F: 'static + Send + Fn(&T) -> u64,
     {
-        let (tx, rx) = mpsc::channel(self.length as usize);
+        let (tx, rx) = mpsc::channel(max_length);
 
-        let bar_tx = self.bar_tx.clone();
-        let bar_finished = self.bar_finished.clone();
         task::spawn(async move {
             let mut buf = Vec::new();
 
@@ -94,12 +86,12 @@ impl ProgressBarBuilder {
 
         DupLinkStream::new(rx)
     }
-    fn add_uniq_stream(&mut self, s: UniqueStream) -> UniqueStream
+    fn add_uniq_stream(s: UniqueStream, max_length: usize, bar_tx: mpsc::Sender<u64>, bar_finished: Arc<Notify>) -> UniqueStream
     {
-        self.add_stream_impl(s, |_| 1)
+        Self::add_stream_impl(s, max_length, bar_tx, bar_finished, |_| 1)
     }
-    fn add_dup_stream(&mut self, s: DuplicateStream) -> DuplicateStream
+    fn add_dup_stream(s: DuplicateStream, max_length: usize, bar_tx: mpsc::Sender<u64>, bar_finished: Arc<Notify>) -> DuplicateStream
     {
-        self.add_stream_impl(s, |v| v.len() as u64)
+        Self::add_stream_impl(s, max_length, bar_tx, bar_finished, |v| v.len() as u64)
     }
 }
