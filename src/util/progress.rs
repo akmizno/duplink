@@ -16,22 +16,35 @@ pub(crate) struct ProgressBarBuilder {
     bar_rx: mpsc::Receiver<u64>,
 
     bar_finished: Arc<Notify>,
+
+    dup_stream: Option<DuplicateStream>,
+    uniq_stream: Option<UniqueStream>,
 }
 
 impl ProgressBarBuilder {
-    pub(crate) fn new(length: u64) -> Self {
+    pub(crate) fn new(length: u64, dup_stream: DuplicateStream, uniq_stream: UniqueStream) -> Self {
         let (bar_tx, bar_rx) = mpsc::channel(length as usize);
         let bar_finished = Arc::new(Notify::new());
 
-        ProgressBarBuilder {
+        let mut builder = ProgressBarBuilder {
             length,
             bar_tx,
             bar_rx,
             bar_finished,
-        }
+            dup_stream: None,
+            uniq_stream: None,
+        };
+
+        let dup_stream = builder.add_dup_stream(dup_stream);
+        let uniq_stream = builder.add_uniq_stream(uniq_stream);
+
+        builder.dup_stream = Some(dup_stream);
+        builder.uniq_stream = Some(uniq_stream);
+
+        builder
     }
 
-    pub(crate) fn build(self) -> ProgressBar {
+    pub(crate) fn build(self) -> (ProgressBar, (DuplicateStream, UniqueStream)) {
         let bar = indicatif::ProgressBar::new(self.length);
 
         // Task for incrementing progress bar.
@@ -48,7 +61,7 @@ impl ProgressBarBuilder {
             });
         }
 
-        ProgressBar(bar)
+        (ProgressBar(bar), (self.dup_stream.unwrap(), self.uniq_stream.unwrap()))
     }
     fn add_stream_impl<T, F>(&mut self, mut s: DupLinkStream<T>, inc_num: F) -> DupLinkStream<T>
         where T: 'static + Send + std::fmt::Debug,
@@ -81,11 +94,11 @@ impl ProgressBarBuilder {
 
         DupLinkStream::new(rx)
     }
-    pub(crate) fn add_uniq_stream(&mut self, s: UniqueStream) -> UniqueStream
+    fn add_uniq_stream(&mut self, s: UniqueStream) -> UniqueStream
     {
         self.add_stream_impl(s, |_| 1)
     }
-    pub(crate) fn add_dup_stream(&mut self, s: DuplicateStream) -> DuplicateStream
+    fn add_dup_stream(&mut self, s: DuplicateStream) -> DuplicateStream
     {
         self.add_stream_impl(s, |v| v.len() as u64)
     }
