@@ -15,24 +15,18 @@ pub(crate) struct ProgressBarBuilder {
     bar_tx: mpsc::Sender<u64>,
     bar_rx: mpsc::Receiver<u64>,
 
-    stream_count: usize,
-    inc_finished: Arc<Notify>,
-
     bar_finished: Arc<Notify>,
 }
 
 impl ProgressBarBuilder {
     pub(crate) fn new(length: u64) -> Self {
         let (bar_tx, bar_rx) = mpsc::channel(length as usize);
-        let inc_finished = Arc::new(Notify::new());
         let bar_finished = Arc::new(Notify::new());
 
         ProgressBarBuilder {
             length,
             bar_tx,
             bar_rx,
-            stream_count: 0,
-            inc_finished,
             bar_finished,
         }
     }
@@ -44,22 +38,11 @@ impl ProgressBarBuilder {
         {
             let bar = bar.clone();
             let mut bar_rx = self.bar_rx;
-            let inc_finished = self.inc_finished.clone();
+            let bar_finished = self.bar_finished.clone();
             task::spawn(async move {
                 while let Some(n) = bar_rx.recv().await {
                     bar.inc(n);
                 }
-                inc_finished.notify_waiters();
-            });
-        }
-
-        // Task for cleaning the progress bar.
-        {
-            let bar = bar.clone();
-            let inc_finished = self.inc_finished;
-            let bar_finished = self.bar_finished;
-            task::spawn(async move {
-                inc_finished.notified().await;
                 bar.finish_and_clear();
                 bar_finished.notify_waiters();
             });
@@ -71,8 +54,6 @@ impl ProgressBarBuilder {
         where T: 'static + Send + std::fmt::Debug,
               F: 'static + Send + Fn(&T) -> u64,
     {
-        self.stream_count += 1;
-
         let (tx, rx) = mpsc::channel(self.length as usize);
 
         let bar_tx = self.bar_tx.clone();
