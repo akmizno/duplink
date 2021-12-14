@@ -253,7 +253,7 @@ async fn collect_content_eq(
             let sem = sem.clone();
             task::spawn(async move {
                 let eq = {
-                    let _p = sem.acquire_many(2).await.unwrap();
+                    let _p = sem.acquire_double().await.unwrap();
                     base_node.eq_content(&node).await
                 };
 
