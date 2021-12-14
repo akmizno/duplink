@@ -283,11 +283,11 @@ async fn main() {
         .max_depth(max_depth)
         .follow_links(follow)
         .walk(&paths)
-        .collect().await;
+        .collect()
+        .await;
     let nodes_len = nodes.len();
 
-    let duplink = api::DupLink::new(sem_small, sem_large)
-        .ignore_dev(ignore_dev);
+    let duplink = api::DupLink::new(sem_small, sem_large).ignore_dev(ignore_dev);
     let (dups, uniqs) = duplink.find_dups(nodes);
 
     let (dups, uniqs) = if show_progress {

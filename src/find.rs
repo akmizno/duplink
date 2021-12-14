@@ -151,11 +151,20 @@ fn find_dups_by_fast_digest_impl(
                 task::spawn(async move {
                     dups.send(group).await.unwrap();
                 });
-                log::debug!("{} files have same digests at beginning {}B; {:#018x}", dup_count, THRESHOLD, digest);
+                log::debug!(
+                    "{} files have same digests at beginning {}B; {:#018x}",
+                    dup_count,
+                    THRESHOLD,
+                    digest
+                );
             }
         }
         if 0 < uniq_count {
-            log::debug!("{} files have unique digests at beginning {}B.", uniq_count, THRESHOLD);
+            log::debug!(
+                "{} files have unique digests at beginning {}B.",
+                uniq_count,
+                THRESHOLD
+            );
         }
     });
 }
@@ -284,9 +293,9 @@ async fn collect_content_eq(
     let mut eqs: Vec<Node> = ReceiverStream::new(eq_rx).collect().await;
     let nes = ReceiverStream::new(ne_rx).collect().await;
 
-    // The base_node can be unwrapped because
-    // it is clear that all of spawned tasks have been end at this time.
+    assert_eq!(1, Arc::strong_count(&base_node));
     eqs.push(Arc::try_unwrap(base_node).unwrap());
+
     (eqs, nes)
 }
 
@@ -501,10 +510,10 @@ fn find_dups_core(
             match empty_nodes.len().cmp(&1) {
                 Ordering::Equal => {
                     uniqs.send(empty_nodes.pop().unwrap()).await.unwrap();
-                },
+                }
                 Ordering::Greater => {
                     dups.send(empty_nodes).await.unwrap();
-                },
+                }
                 _ => (),
             };
             log::debug!("{} empty files are detected.", empty_count);

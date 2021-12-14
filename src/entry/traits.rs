@@ -127,9 +127,10 @@ pub trait ContentEq: FileAttr {
 /// Create a link dst pointing to src.
 /// Both src and dst must be existing files.
 async fn link<P, F, Fut>(src: P, dst: P, f: F) -> io::Result<()>
-    where P: AsRef<Path>,
-          F: FnOnce(PathBuf, PathBuf) -> Fut,
-          Fut: Future<Output=io::Result<()>>,
+where
+    P: AsRef<Path>,
+    F: FnOnce(PathBuf, PathBuf) -> Fut,
+    Fut: Future<Output = io::Result<()>>,
 {
     let src = src.as_ref();
     let dst = dst.as_ref();
@@ -145,12 +146,20 @@ async fn link<P, F, Fut>(src: P, dst: P, f: F) -> io::Result<()>
     let tmplink_result = f(src.to_owned(), tmplink.to_owned()).await;
     match tmplink_result {
         Ok(_) => {
-            log::info!("Create a temporary link {} to {}.", tmplink.display(), src.display());
-        },
+            log::info!(
+                "Create a temporary link {} to {}.",
+                tmplink.display(),
+                src.display()
+            );
+        }
         Err(e) => {
-            log::error!("Fail to create a temporary link {} to {}.", tmplink.display(), src.display());
+            log::error!(
+                "Fail to create a temporary link {} to {}.",
+                tmplink.display(),
+                src.display()
+            );
             return Err(e);
-        },
+        }
     };
 
     // Try to rename the created link as dst.
@@ -159,32 +168,40 @@ async fn link<P, F, Fut>(src: P, dst: P, f: F) -> io::Result<()>
         Ok(_) => {
             log::info!("Create a link {} to {}.", dst.display(), src.display());
             Ok(())
-        },
+        }
         Err(e) => {
-            log::error!("Fail to create a link {} to {}.", dst.display(), src.display());
+            log::error!(
+                "Fail to create a link {} to {}.",
+                dst.display(),
+                src.display()
+            );
             Err(e)
         }
     }
 }
 async fn link_hard<P>(src: P, dst: P) -> io::Result<()>
-    where P: AsRef<Path>
+where
+    P: AsRef<Path>,
 {
     link(src, dst, tokio::fs::hard_link).await
 }
 async fn link_soft<P>(src: P, dst: P) -> io::Result<()>
-    where P: AsRef<Path>
+where
+    P: AsRef<Path>,
 {
     link(src, dst, tokio::fs::symlink).await
 }
 #[async_trait]
 pub trait LinkTo: FileAttr {
     async fn into_hardlink(self, to: &Path) -> io::Result<()>
-        where Self: Sized + Sync
+    where
+        Self: Sized + Sync,
     {
         link_hard(to, self.path()).await
     }
     async fn into_symlink(self, to: &Path) -> io::Result<()>
-        where Self: Sized + Sync
+    where
+        Self: Sized + Sync,
     {
         link_soft(to, self.path()).await
     }

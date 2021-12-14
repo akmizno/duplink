@@ -1,7 +1,7 @@
 use std::cmp;
 use std::sync::Arc;
 
-const MIN_FDS: usize = 2; // Two files will be opened at a time to compare them.
+const MIN_FDS: usize = 2; // Two files are opened at a time to compare them.
 
 fn system_fdlimit() -> usize {
     const MAX: usize = std::usize::MAX;

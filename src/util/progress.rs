@@ -1,11 +1,10 @@
-use tokio_stream::StreamExt;
-use tokio::task;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Notify;
-use std::sync::Arc;
+use tokio::task;
+use tokio_stream::StreamExt;
 
 use crate::api::{DupLinkStream, DuplicateStream, UniqueStream};
-
 
 pub(crate) struct ProgressBar(indicatif::ProgressBar);
 
@@ -25,9 +24,12 @@ impl ProgressBarBuilder {
         let (bar_tx, bar_rx) = mpsc::channel(length as usize);
         let bar_finished = Arc::new(Notify::new());
 
+        let maxlen = length as usize;
 
-        let dup_stream = Self::add_dup_stream(dup_stream, length as usize, bar_tx.clone(), bar_finished.clone());
-        let uniq_stream = Self::add_uniq_stream(uniq_stream, length as usize, bar_tx.clone(), bar_finished.clone());
+        let dup_stream =
+            Self::add_dup_stream(dup_stream, maxlen, bar_tx.clone(), bar_finished.clone());
+
+        let uniq_stream = Self::add_uniq_stream(uniq_stream, maxlen, bar_tx, bar_finished.clone());
 
         ProgressBarBuilder {
             length,
@@ -57,9 +59,16 @@ impl ProgressBarBuilder {
 
         (ProgressBar(bar), (self.dup_stream, self.uniq_stream))
     }
-    fn add_stream_impl<T, F>(mut s: DupLinkStream<T>, max_length: usize, bar_tx: mpsc::Sender<u64>, bar_finished: Arc<Notify>, inc_num: F) -> DupLinkStream<T>
-        where T: 'static + Send + std::fmt::Debug,
-              F: 'static + Send + Fn(&T) -> u64,
+    fn add_stream_impl<T, F>(
+        mut s: DupLinkStream<T>,
+        max_length: usize,
+        bar_tx: mpsc::Sender<u64>,
+        bar_finished: Arc<Notify>,
+        inc_num: F,
+    ) -> DupLinkStream<T>
+    where
+        T: 'static + Send + std::fmt::Debug,
+        F: 'static + Send + Fn(&T) -> u64,
     {
         let (tx, rx) = mpsc::channel(max_length);
 
@@ -86,12 +95,20 @@ impl ProgressBarBuilder {
 
         DupLinkStream::new(rx)
     }
-    fn add_uniq_stream(s: UniqueStream, max_length: usize, bar_tx: mpsc::Sender<u64>, bar_finished: Arc<Notify>) -> UniqueStream
-    {
+    fn add_uniq_stream(
+        s: UniqueStream,
+        max_length: usize,
+        bar_tx: mpsc::Sender<u64>,
+        bar_finished: Arc<Notify>,
+    ) -> UniqueStream {
         Self::add_stream_impl(s, max_length, bar_tx, bar_finished, |_| 1)
     }
-    fn add_dup_stream(s: DuplicateStream, max_length: usize, bar_tx: mpsc::Sender<u64>, bar_finished: Arc<Notify>) -> DuplicateStream
-    {
+    fn add_dup_stream(
+        s: DuplicateStream,
+        max_length: usize,
+        bar_tx: mpsc::Sender<u64>,
+        bar_finished: Arc<Notify>,
+    ) -> DuplicateStream {
         Self::add_stream_impl(s, max_length, bar_tx, bar_finished, |v| v.len() as u64)
     }
 }
