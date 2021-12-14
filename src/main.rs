@@ -291,8 +291,8 @@ async fn main() {
     let (dups, uniqs) = duplink.find_dups(nodes);
 
     let (dups, uniqs) = if show_progress {
-        let progress_builder = ProgressBarBuilder::new(nodes_len as u64, dups, uniqs);
-        let (_, (dups, uniqs)) = progress_builder.build();
+        let progress_builder = ProgressBarBuilder::new(nodes_len);
+        let (_, (dups, uniqs)) = progress_builder.build(dups, uniqs);
         (dups, uniqs)
     } else {
         (dups, uniqs)

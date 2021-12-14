@@ -9,45 +9,41 @@ use crate::api::{DupLinkStream, DuplicateStream, UniqueStream};
 pub(crate) struct ProgressBar(indicatif::ProgressBar);
 
 pub(crate) struct ProgressBarBuilder {
-    length: u64,
-
-    bar_rx: mpsc::Receiver<u64>,
-
-    bar_finished: Arc<Notify>,
-
-    dup_stream: DuplicateStream,
-    uniq_stream: UniqueStream,
+    length: usize,
 }
 
 impl ProgressBarBuilder {
-    pub(crate) fn new(length: u64, dup_stream: DuplicateStream, uniq_stream: UniqueStream) -> Self {
-        let (bar_tx, bar_rx) = mpsc::channel(length as usize);
-        let bar_finished = Arc::new(Notify::new());
-
-        let maxlen = length as usize;
-
-        let dup_stream =
-            Self::add_dup_stream(dup_stream, maxlen, bar_tx.clone(), bar_finished.clone());
-
-        let uniq_stream = Self::add_uniq_stream(uniq_stream, maxlen, bar_tx, bar_finished.clone());
-
-        ProgressBarBuilder {
-            length,
-            bar_rx,
-            bar_finished,
-            dup_stream,
-            uniq_stream,
-        }
+    pub(crate) fn new(length: usize) -> Self {
+        ProgressBarBuilder { length }
     }
 
-    pub(crate) fn build(self) -> (ProgressBar, (DuplicateStream, UniqueStream)) {
-        let bar = indicatif::ProgressBar::new(self.length);
+    pub(crate) fn build(
+        self,
+        dups: DuplicateStream,
+        uniqs: UniqueStream,
+    ) -> (ProgressBar, (DuplicateStream, UniqueStream)) {
+        //
+        let (bar_tx, bar_rx) = mpsc::channel(self.length);
+        let bar_finished = Arc::new(Notify::new());
+
+        let dups = Self::new_dup_stream(dups, self.length, bar_tx.clone(), bar_finished.clone());
+
+        let uniqs = Self::new_uniq_stream(uniqs, self.length, bar_tx, bar_finished.clone());
+
+        let bar = Self::new_progress_bar(self.length as u64, bar_rx, bar_finished);
+
+        (ProgressBar(bar), (dups, uniqs))
+    }
+    fn new_progress_bar(
+        length: u64,
+        mut bar_rx: mpsc::Receiver<u64>,
+        bar_finished: Arc<Notify>,
+    ) -> indicatif::ProgressBar {
+        let bar = indicatif::ProgressBar::new(length);
 
         // Task for incrementing progress bar.
         {
             let bar = bar.clone();
-            let mut bar_rx = self.bar_rx;
-            let bar_finished = self.bar_finished.clone();
             task::spawn(async move {
                 while let Some(n) = bar_rx.recv().await {
                     bar.inc(n);
@@ -57,9 +53,9 @@ impl ProgressBarBuilder {
             });
         }
 
-        (ProgressBar(bar), (self.dup_stream, self.uniq_stream))
+        bar
     }
-    fn add_stream_impl<T, F>(
+    fn new_stream_impl<T, F>(
         mut s: DupLinkStream<T>,
         max_length: usize,
         bar_tx: mpsc::Sender<u64>,
@@ -95,20 +91,20 @@ impl ProgressBarBuilder {
 
         DupLinkStream::new(rx)
     }
-    fn add_uniq_stream(
+    fn new_uniq_stream(
         s: UniqueStream,
         max_length: usize,
         bar_tx: mpsc::Sender<u64>,
         bar_finished: Arc<Notify>,
     ) -> UniqueStream {
-        Self::add_stream_impl(s, max_length, bar_tx, bar_finished, |_| 1)
+        Self::new_stream_impl(s, max_length, bar_tx, bar_finished, |_| 1)
     }
-    fn add_dup_stream(
+    fn new_dup_stream(
         s: DuplicateStream,
         max_length: usize,
         bar_tx: mpsc::Sender<u64>,
         bar_finished: Arc<Notify>,
     ) -> DuplicateStream {
-        Self::add_stream_impl(s, max_length, bar_tx, bar_finished, |v| v.len() as u64)
+        Self::new_stream_impl(s, max_length, bar_tx, bar_finished, |v| v.len() as u64)
     }
 }
