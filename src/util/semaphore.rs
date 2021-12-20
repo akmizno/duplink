@@ -15,7 +15,7 @@ fn max_concurrency(user_limit: Option<usize>) -> usize {
     cmp::max(
         MIN_FDS,
         cmp::min(
-            system_fdlimit() - 3, // 3 = (stdin, stdout, stderr)
+            system_fdlimit() - 4, // 4 = (stdin, stdout, stderr, output file)
             cmp::min(
                 default_concurrency,
                 user_limit.unwrap_or(default_concurrency),

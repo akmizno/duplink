@@ -70,18 +70,36 @@ impl Output {
             Output::File(o) => o.flush().await,
         }
     }
+
+    fn is_tty(&self) -> bool {
+        match self {
+            Output::Stdout(_) => true,
+            _ => false,
+        }
+    }
 }
 impl From<fs::File> for Output {
     fn from(w: fs::File) -> Self {
         Output::File(io::BufWriter::new(w))
     }
 }
-fn build_output_writers(matches: &ArgMatches) -> (bool, (Output, Output)) {
-    let output_is_tty = true;
-    if matches.is_present("unique") {
-        (output_is_tty, (Output::sink(), Output::stdout()))
+async fn build_output_writers(
+    output_file: Option<PathBuf>,
+    unique: bool,
+) -> (bool, (Output, Output)) {
+    let output = if let Some(opath) = output_file {
+        let file = fs::File::create(opath).await.unwrap();
+        Output::from(file)
     } else {
-        (output_is_tty, (Output::stdout(), Output::sink()))
+        Output::stdout()
+    };
+
+    let output_is_tty = output.is_tty();
+
+    if unique {
+        (output_is_tty, (Output::sink(), output))
+    } else {
+        (output_is_tty, (output, Output::sink()))
     }
 }
 
@@ -132,6 +150,14 @@ async fn main() {
             .takes_value(true)
             .required(true)
             .help("Directories or files that duplink will search into."))
+
+        .arg(Arg::with_name("output")
+            .long("output")
+            .short("o")
+            .takes_value(true)
+            .required(false)
+            .help("Output file.")
+            .long_help("Output file to write results. (default: stdout)."))
 
         .arg(Arg::with_name("hdd")
             .long("hdd")
@@ -287,7 +313,11 @@ async fn main() {
     let duplink = api::DupLink::new(sem_small, sem_large).ignore_dev(ignore_dev);
     let (dups, uniqs) = duplink.find_dups(nodes);
 
-    let (output_is_tty, (dup_out, uniq_out)) = build_output_writers(&matches);
+    let (output_is_tty, (dup_out, uniq_out)) = build_output_writers(
+        matches.value_of("output").map(PathBuf::from),
+        matches.is_present("unique"),
+    )
+    .await;
 
     let (_bar, (dups, uniqs)) = ProgressBarBuilder::new()
         .length(nodes_len)
