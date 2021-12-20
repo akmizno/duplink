@@ -1,4 +1,12 @@
 #![cfg_attr(windows, feature(windows_by_handle))]
+
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use clap::value_t_or_exit;
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches};
 use itertools::Itertools;
@@ -7,13 +15,6 @@ use tokio_stream::StreamExt;
 
 use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
-
-#[cfg(not(target_env = "msvc"))]
-use jemallocator::Jemalloc;
-
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
 
 pub mod api;
 pub mod entry;
