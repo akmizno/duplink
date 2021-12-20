@@ -79,10 +79,7 @@ impl Output {
     }
 
     fn is_tty(&self) -> bool {
-        match self {
-            Output::Stdout(_) => true,
-            _ => false,
-        }
+        matches!(self, Output::Stdout(_))
     }
 }
 impl From<fs::File> for Output {
