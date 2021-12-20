@@ -9,15 +9,15 @@ pub type DupLinkStream<T> = ReceiverStream<T>;
 pub type DuplicateStream = DupLinkStream<Vec<Node>>;
 pub type UniqueStream = DupLinkStream<Node>;
 
-pub struct DupLink {
+pub struct DupFinder {
     sem_small: Semaphore,
     sem_large: Semaphore,
     ignore_dev: bool,
 }
 
-impl DupLink {
-    pub fn new(sem_small: Semaphore, sem_large: Semaphore) -> DupLink {
-        DupLink {
+impl DupFinder {
+    pub fn new(sem_small: Semaphore, sem_large: Semaphore) -> DupFinder {
+        DupFinder {
             sem_small,
             sem_large,
             ignore_dev: false,

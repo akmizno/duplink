@@ -314,8 +314,8 @@ async fn main() {
         .await;
     let nodes_len = nodes.len();
 
-    let duplink = api::DupLink::new(sem_small, sem_large).ignore_dev(ignore_dev);
-    let (dups, uniqs) = duplink.find_dups(nodes);
+    let dup_finder = api::DupFinder::new(sem_small, sem_large).ignore_dev(ignore_dev);
+    let (dups, uniqs) = dup_finder.find_dups(nodes);
 
     let (output_is_tty, (dup_out, uniq_out)) = build_output_writers(
         matches.value_of("output").map(PathBuf::from),
