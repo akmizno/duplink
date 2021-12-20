@@ -19,10 +19,6 @@ use entry::FileAttr;
 use util::progress::ProgressBarBuilder;
 use walk::Node;
 
-fn is_in_tty() -> bool {
-    atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdout)
-}
-
 fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(node) = uniqs.next().await {
@@ -80,11 +76,12 @@ impl From<fs::File> for Output {
         Output::File(io::BufWriter::new(w))
     }
 }
-fn build_output_writers(matches: &ArgMatches) -> (Output, Output) {
+fn build_output_writers(matches: &ArgMatches) -> (bool, (Output, Output)) {
+    let output_is_tty = true;
     if matches.is_present("unique") {
-        (Output::sink(), Output::stdout())
+        (output_is_tty, (Output::sink(), Output::stdout()))
     } else {
-        (Output::stdout(), Output::sink())
+        (output_is_tty, (Output::stdout(), Output::sink()))
     }
 }
 
@@ -236,8 +233,8 @@ async fn main() {
 
         .get_matches();
 
-    let show_progress = matches.is_present("progress") && is_in_tty();
-    let no_msg = show_progress || matches.is_present("quiet");
+    let enable_progress = matches.is_present("progress");
+    let no_msg = enable_progress || matches.is_present("quiet");
     let debug = matches.is_present("debug");
 
     let log_level = if debug {
@@ -290,15 +287,13 @@ async fn main() {
     let duplink = api::DupLink::new(sem_small, sem_large).ignore_dev(ignore_dev);
     let (dups, uniqs) = duplink.find_dups(nodes);
 
-    let (dups, uniqs) = if show_progress {
-        let progress_builder = ProgressBarBuilder::new(nodes_len);
-        let (_, (dups, uniqs)) = progress_builder.build(dups, uniqs);
-        (dups, uniqs)
-    } else {
-        (dups, uniqs)
-    };
+    let (output_is_tty, (dup_out, uniq_out)) = build_output_writers(&matches);
 
-    let (dup_out, uniq_out) = build_output_writers(&matches);
+    let (_bar, (dups, uniqs)) = ProgressBarBuilder::new()
+        .length(nodes_len)
+        .enable_progress_bar(enable_progress)
+        .output_is_tty(output_is_tty)
+        .build(dups, uniqs);
 
     let uniq_handle = write_uniqs(uniq_out, uniqs);
     let dup_handle = write_dups(dup_out, dups);
