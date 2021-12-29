@@ -186,8 +186,11 @@ where
     link(src, dst, tokio::fs::hard_link).await
 }
 #[cfg(windows)]
-async fn win_symlink<P>(src: P, dst: P) -> io::Result<()> {
-    tokio::task::block_in_place(|| std::os::windows::fs::symlink_file(src, dst)).await
+async fn win_symlink<P>(src: P, dst: P) -> io::Result<()>
+where
+    P: AsRef<Path>,
+{
+    tokio::task::block_in_place(|| std::os::windows::fs::symlink_file(src, dst))
 }
 #[cfg(windows)]
 async fn link_soft<P>(src: P, dst: P) -> io::Result<()>
