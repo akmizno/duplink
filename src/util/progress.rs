@@ -12,7 +12,7 @@ pub(crate) struct ProgressBar(indicatif::ProgressBar);
 pub(crate) struct ProgressBarBuilder {
     length: usize,
     enable_bar: bool,
-    output_is_tty: bool,
+    enable_stream_buffering: bool,
 }
 
 impl ProgressBarBuilder {
@@ -20,7 +20,7 @@ impl ProgressBarBuilder {
         ProgressBarBuilder {
             length: 0,
             enable_bar: false,
-            output_is_tty: true,
+            enable_stream_buffering: true,
         }
     }
 
@@ -34,8 +34,8 @@ impl ProgressBarBuilder {
         self
     }
 
-    pub(crate) fn output_is_tty(mut self, yes: bool) -> Self {
-        self.output_is_tty = yes;
+    pub(crate) fn enable_stream_buffering(mut self, yes: bool) -> Self {
+        self.enable_stream_buffering = yes;
         self
     }
 
@@ -48,10 +48,10 @@ impl ProgressBarBuilder {
         let show_progress = self.enable_bar && stderr_is_tty;
 
         if show_progress {
-            if self.output_is_tty {
-                self.build_sync(dups, uniqs)
+            if self.enable_stream_buffering {
+                self.build_with_buffered_streams(dups, uniqs)
             } else {
-                self.build_async(dups, uniqs)
+                self.build_with_async_streams(dups, uniqs)
             }
         } else {
             self.build_hidden(dups, uniqs)
@@ -66,7 +66,7 @@ impl ProgressBarBuilder {
         (ProgressBar(indicatif::ProgressBar::hidden()), (dups, uniqs))
     }
 
-    pub(crate) fn build_async(
+    pub(crate) fn build_with_async_streams(
         self,
         dups: DuplicateStream,
         uniqs: UniqueStream,
@@ -84,7 +84,7 @@ impl ProgressBarBuilder {
         (ProgressBar(bar), (dups, uniqs))
     }
 
-    pub(crate) fn build_sync(
+    pub(crate) fn build_with_buffered_streams(
         self,
         dups: DuplicateStream,
         uniqs: UniqueStream,

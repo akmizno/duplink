@@ -79,7 +79,7 @@ impl Output {
         }
     }
 
-    fn is_tty(&self) -> bool {
+    fn is_stdout(&self) -> bool {
         matches!(self, Output::Stdout(_))
     }
 }
@@ -99,12 +99,12 @@ async fn build_output_writers(
         Output::stdout()
     };
 
-    let output_is_tty = output.is_tty();
+    let output_is_stdout = output.is_stdout();
 
     if unique {
-        (output_is_tty, (Output::sink(), output))
+        (output_is_stdout, (Output::sink(), output))
     } else {
-        (output_is_tty, (output, Output::sink()))
+        (output_is_stdout, (output, Output::sink()))
     }
 }
 
@@ -318,7 +318,7 @@ async fn main() {
     let dup_finder = api::DupFinder::new(sem_small, sem_large).ignore_dev(ignore_dev);
     let (dups, uniqs) = dup_finder.find_dups(nodes);
 
-    let (output_is_tty, (dup_out, uniq_out)) = build_output_writers(
+    let (output_is_stdout, (dup_out, uniq_out)) = build_output_writers(
         matches.value_of("output").map(PathBuf::from),
         matches.is_present("unique"),
     )
@@ -327,7 +327,7 @@ async fn main() {
     let (_bar, (dups, uniqs)) = ProgressBarBuilder::new()
         .length(nodes_len)
         .enable_progress_bar(enable_progress)
-        .output_is_tty(output_is_tty)
+        .enable_stream_buffering(output_is_stdout)
         .build(dups, uniqs);
 
     let uniq_handle = write_uniqs(uniq_out, uniqs);
