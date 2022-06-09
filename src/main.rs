@@ -327,7 +327,7 @@ async fn main() {
     let (_bar, (dups, uniqs)) = ProgressBarBuilder::new()
         .length(nodes_len)
         .enable_progress_bar(enable_progress)
-        .enable_stream_buffering(output_is_stdout)
+        .enable_stream_buffering(output_is_stdout && atty::is(atty::Stream::Stdout))
         .build(dups, uniqs);
 
     let uniq_handle = write_uniqs(uniq_out, uniqs);
