@@ -22,3 +22,8 @@ Use `--hdd` if you will run duplink on HDDs. By default, duplink is optimized fo
 ```sh
 $ duplink --hdd /path/to/hdd
 ```
+
+Find duplicate files and de-duplicate them as follows,
+```sh
+$ duplink -L PATH
+```
