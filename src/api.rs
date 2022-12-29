@@ -79,9 +79,9 @@ impl DedupPipe {
     async fn link_nodes(nodes: Vec<Node>, sem: Semaphore, sender: Sender<Vec<Node>>) {
         assert!(1 < nodes.len());
 
-        let mut entries = nodes.iter().flat_map(|node| node.entries());
-        let first = entries.next().unwrap();
+        let first = &nodes[0];
         let to = first.path();
+        let entries = nodes[1..].iter().flat_map(|node| node.entries());
 
         {
             let _p = sem.acquire().await.unwrap();
