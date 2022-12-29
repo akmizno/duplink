@@ -1,6 +1,6 @@
 [package]
 name = "duplink"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Akira Mizuno <akmizno@gmail.com>"]
 edition = "2018"
 description = "A CLI tool for finding duplicate files from directory tree and de-duplicating them."
