@@ -274,6 +274,8 @@ async fn main() {
 
         .get_matches();
 
+    let dedup_hard = matches.is_present("dedup-hard");
+    let dedup_soft = matches.is_present("dedup-soft");
     let enable_progress = matches.is_present("progress");
     let no_msg = enable_progress || matches.is_present("quiet");
     let debug = matches.is_present("debug");
@@ -325,8 +327,16 @@ async fn main() {
         .await;
     let nodes_len = nodes.len();
 
-    let dup_finder = api::DupFinder::new(sem_small, sem_large).ignore_dev(ignore_dev);
+    let dup_finder = api::DupFinder::new(sem_small.clone(), sem_large).ignore_dev(ignore_dev);
     let (dups, uniqs) = dup_finder.find_dups(nodes);
+
+    let dups = if dedup_hard {
+        api::DedupPipe::new_hardlink(sem_small, nodes_len).dedup(dups)
+    } else if dedup_soft {
+        api::DedupPipe::new_softlink(sem_small, nodes_len).dedup(dups)
+    } else {
+        dups
+    };
 
     let (output_is_stdout, (dup_out, uniq_out)) = build_output_writers(
         matches.value_of("output").map(PathBuf::from),

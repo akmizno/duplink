@@ -45,3 +45,23 @@ impl DupFinder {
         (DuplicateStream::new(dups_rx), UniqueStream::new(uniqs_rx))
     }
 }
+
+pub enum DedupPipe {
+    HardLink((Semaphore, usize)),
+    SoftLink((Semaphore, usize)),
+}
+
+impl DedupPipe {
+    pub fn new_hardlink(sem: Semaphore, buffer: usize) -> DedupPipe {
+        DedupPipe::HardLink((sem, buffer))
+    }
+    pub fn new_softlink(sem: Semaphore, buffer: usize) -> DedupPipe {
+        DedupPipe::SoftLink((sem, buffer))
+    }
+
+    pub fn dedup(self, dups: DuplicateStream) -> DuplicateStream {
+        match self {
+            _ => dups,
+        }
+    }
+}
