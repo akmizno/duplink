@@ -1,6 +1,10 @@
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use tokio::task;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
 
+use super::entry::{FileAttr, LinkTo};
 use super::find;
 use super::util::semaphore::Semaphore;
 use super::walk::Node;
@@ -46,22 +50,76 @@ impl DupFinder {
     }
 }
 
-pub enum DedupPipe {
-    HardLink((Semaphore, usize)),
-    SoftLink((Semaphore, usize)),
+pub struct DedupPipe {
+    sem: Semaphore,
+    buffer: usize,
+    hardlink: bool, // true: hardlink, false: softlink
 }
 
 impl DedupPipe {
     pub fn new_hardlink(sem: Semaphore, buffer: usize) -> DedupPipe {
-        DedupPipe::HardLink((sem, buffer))
+        DedupPipe {
+            sem,
+            buffer,
+            hardlink: true,
+        }
     }
     pub fn new_softlink(sem: Semaphore, buffer: usize) -> DedupPipe {
-        DedupPipe::SoftLink((sem, buffer))
+        DedupPipe {
+            sem,
+            buffer,
+            hardlink: false,
+        }
     }
 
-    pub fn dedup(self, dups: DuplicateStream) -> DuplicateStream {
-        match self {
-            _ => dups,
+    pub fn dedup(self, mut dups: DuplicateStream) -> DuplicateStream {
+        let (tx, rx) = mpsc::channel(self.buffer);
+
+        let hardlink = self.hardlink;
+
+        task::spawn(async move {
+            while let Some(nodes) = dups.next().await {
+                let sem = self.sem.clone();
+                let tx = tx.clone();
+                task::spawn(async move {
+                    Self::link_nodes(nodes, hardlink, sem, tx).await;
+                });
+            }
+        });
+
+        DuplicateStream::new(rx)
+    }
+
+    async fn link_nodes(
+        nodes: Vec<Node>,
+        hardlink: bool,
+        sem: Semaphore,
+        sender: Sender<Vec<Node>>,
+    ) {
+        assert!(1 < nodes.len());
+
+        let mut entries = nodes.iter().flat_map(|node| node.entries());
+        let first = entries.next().unwrap();
+        let to = first.path();
+
+        {
+            let _p = sem.acquire().await.unwrap();
+
+            for entry in entries {
+                let res = if hardlink {
+                    entry.hardlink(to)
+                } else {
+                    entry.symlink(to)
+                }
+                .await;
+
+                if res.is_err() {
+                    // Log the error and continue linking.
+                    log::warn!("{}: {}", res.unwrap_err(), entry.path().display());
+                }
+            }
         }
+
+        sender.send(nodes).await.unwrap();
     }
 }

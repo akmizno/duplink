@@ -208,16 +208,10 @@ where
 }
 #[async_trait]
 pub trait LinkTo: FileAttr {
-    async fn into_hardlink(self, to: &Path) -> io::Result<()>
-    where
-        Self: Sized + Sync,
-    {
+    async fn hardlink(&self, to: &Path) -> io::Result<()> {
         link_hard(to, self.path()).await
     }
-    async fn into_symlink(self, to: &Path) -> io::Result<()>
-    where
-        Self: Sized + Sync,
-    {
+    async fn symlink(&self, to: &Path) -> io::Result<()> {
         link_soft(to, self.path()).await
     }
 }

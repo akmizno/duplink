@@ -15,11 +15,11 @@ use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
 use tokio_stream::StreamExt;
 
-pub mod api;
-pub mod entry;
-pub mod find;
-pub(crate) mod util;
-pub mod walk;
+mod api;
+mod entry;
+mod find;
+mod util;
+mod walk;
 
 use api::{DuplicateStream, UniqueStream};
 use entry::FileAttr;
@@ -29,9 +29,11 @@ use walk::Node;
 fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(node) = uniqs.next().await {
-            out.write(format!("{}\n", node.path().display()).as_bytes())
-                .await
-                .unwrap();
+            for entry in node.entries() {
+                out.write(format!("{}\n", entry.path().display()).as_bytes())
+                    .await
+                    .unwrap();
+            }
         }
         out.flush().await.unwrap();
     })
@@ -41,9 +43,11 @@ fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHa
     tokio::task::spawn(async move {
         while let Some(dup_nodes) = dups.next().await {
             for node in dup_nodes {
-                out.write(format!("{}\n", node.path().display()).as_bytes())
-                    .await
-                    .unwrap();
+                for entry in node.entries() {
+                    out.write(format!("{}\n", entry.path().display()).as_bytes())
+                        .await
+                        .unwrap();
+                }
             }
             out.write("\n".as_bytes()).await.unwrap();
         }

@@ -56,8 +56,8 @@ impl Node {
         unsafe { self.entries.get_unchecked(0) }
     }
 
-    pub fn into_entries(self) -> Vec<Entry> {
-        self.entries
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
     }
 }
 

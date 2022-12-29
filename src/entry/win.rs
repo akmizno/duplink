@@ -5,7 +5,7 @@ use walkdir::DirEntry;
 use std::os::windows::fs::MetadataExt;
 
 use super::generic;
-use super::{ContentEq, Digest, FileAttr};
+use super::{ContentEq, Digest, FileAttr, LinkTo};
 
 #[derive(Debug)]
 pub struct Entry {

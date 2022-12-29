@@ -1,7 +1,6 @@
+mod generic;
 mod traits;
 pub use traits::{ContentEq, Digest, FileAttr, LinkTo};
-
-mod generic;
 
 #[cfg(unix)]
 mod unix;
@@ -12,6 +11,3 @@ pub use unix::Entry;
 mod win;
 #[cfg(windows)]
 pub use win::Entry;
-
-#[cfg(not(any(unix, windows)))]
-pub use generic::Entry;
