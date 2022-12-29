@@ -53,36 +53,22 @@ impl DupFinder {
 pub struct DedupPipe {
     sem: Semaphore,
     buffer: usize,
-    hardlink: bool, // true: hardlink, false: softlink
 }
 
 impl DedupPipe {
-    pub fn new_hardlink(sem: Semaphore, buffer: usize) -> DedupPipe {
-        DedupPipe {
-            sem,
-            buffer,
-            hardlink: true,
-        }
-    }
-    pub fn new_softlink(sem: Semaphore, buffer: usize) -> DedupPipe {
-        DedupPipe {
-            sem,
-            buffer,
-            hardlink: false,
-        }
+    pub fn new(sem: Semaphore, buffer: usize) -> DedupPipe {
+        DedupPipe { sem, buffer }
     }
 
     pub fn dedup(self, mut dups: DuplicateStream) -> DuplicateStream {
         let (tx, rx) = mpsc::channel(self.buffer);
-
-        let hardlink = self.hardlink;
 
         task::spawn(async move {
             while let Some(nodes) = dups.next().await {
                 let sem = self.sem.clone();
                 let tx = tx.clone();
                 task::spawn(async move {
-                    Self::link_nodes(nodes, hardlink, sem, tx).await;
+                    Self::link_nodes(nodes, sem, tx).await;
                 });
             }
         });
@@ -90,12 +76,7 @@ impl DedupPipe {
         DuplicateStream::new(rx)
     }
 
-    async fn link_nodes(
-        nodes: Vec<Node>,
-        hardlink: bool,
-        sem: Semaphore,
-        sender: Sender<Vec<Node>>,
-    ) {
+    async fn link_nodes(nodes: Vec<Node>, sem: Semaphore, sender: Sender<Vec<Node>>) {
         assert!(1 < nodes.len());
 
         let mut entries = nodes.iter().flat_map(|node| node.entries());
@@ -106,12 +87,7 @@ impl DedupPipe {
             let _p = sem.acquire().await.unwrap();
 
             for entry in entries {
-                let res = if hardlink {
-                    entry.hardlink(to)
-                } else {
-                    entry.symlink(to)
-                }
-                .await;
+                let res = entry.hardlink(to).await;
 
                 if res.is_err() {
                     // Log the error and continue linking.

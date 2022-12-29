@@ -188,7 +188,7 @@ async fn main() {
             .args(&["dedup-hard", "ignore-filesystem"])
             .required(false))
         .group(ArgGroup::with_name("dedup-group")
-            .args(&["dedup-hard", "dedup-soft", "unique"])
+            .args(&["dedup-hard", "unique"])
             .required(false))
         .arg(Arg::with_name("dedup-hard")
             .long("dedup-hard")
@@ -196,12 +196,6 @@ async fn main() {
             .required(false)
             .takes_value(false)
             .help("Convert duplicate files to hard links."))
-        .arg(Arg::with_name("dedup-soft")
-            .long("dedup-soft")
-            .short("l")
-            .required(false)
-            .takes_value(false)
-            .help("Convert duplicate files to symbolic links."))
         // .arg(Arg::with_name("ask-each")
         //     .long("ask-each")
         //     .short("a")
@@ -279,7 +273,6 @@ async fn main() {
         .get_matches();
 
     let dedup_hard = matches.is_present("dedup-hard");
-    let dedup_soft = matches.is_present("dedup-soft");
     let enable_progress = matches.is_present("progress");
     let no_msg = enable_progress || matches.is_present("quiet");
     let debug = matches.is_present("debug");
@@ -335,9 +328,7 @@ async fn main() {
     let (dups, uniqs) = dup_finder.find_dups(nodes);
 
     let dups = if dedup_hard {
-        api::DedupPipe::new_hardlink(sem_small, nodes_len).dedup(dups)
-    } else if dedup_soft {
-        api::DedupPipe::new_softlink(sem_small, nodes_len).dedup(dups)
+        api::DedupPipe::new(sem_small, nodes_len).dedup(dups)
     } else {
         dups
     };

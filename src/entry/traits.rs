@@ -135,7 +135,15 @@ where
     let src = src.as_ref();
     let dst = dst.as_ref();
 
-    let abspath = tokio::fs::canonicalize(dst).await?;
+    let src_abspath = tokio::fs::canonicalize(src).await?;
+    let dst_abspath = tokio::fs::canonicalize(dst).await?;
+
+    if src_abspath == dst_abspath || !src_abspath.is_file() || !dst_abspath.is_file() {
+        // Do nothing to avoid creating invalid links.
+        return Ok(());
+    }
+
+    let abspath = dst_abspath;
     let dir = abspath.parent().unwrap();
     let filename = src.file_name().unwrap();
 
@@ -185,34 +193,10 @@ where
 {
     link(src, dst, tokio::fs::hard_link).await
 }
-#[cfg(windows)]
-async fn win_symlink<P>(src: P, dst: P) -> io::Result<()>
-where
-    P: AsRef<Path>,
-{
-    tokio::task::block_in_place(|| std::os::windows::fs::symlink_file(src, dst))
-}
-#[cfg(windows)]
-async fn link_soft<P>(src: P, dst: P) -> io::Result<()>
-where
-    P: AsRef<Path>,
-{
-    link(src, dst, win_symlink).await
-}
-#[cfg(not(windows))]
-async fn link_soft<P>(src: P, dst: P) -> io::Result<()>
-where
-    P: AsRef<Path>,
-{
-    link(src, dst, tokio::fs::symlink).await
-}
 #[async_trait]
 pub trait LinkTo: FileAttr {
     async fn hardlink(&self, to: &Path) -> io::Result<()> {
         link_hard(to, self.path()).await
-    }
-    async fn symlink(&self, to: &Path) -> io::Result<()> {
-        link_soft(to, self.path()).await
     }
 }
 
@@ -289,73 +273,6 @@ mod tests {
         let perm = Permissions::from_mode(0o555);
         std::fs::set_permissions(tmpdir.path(), perm).unwrap();
         let result = link_hard(&src, &dst).await;
-
-        assert!(result.is_err());
-
-        let perm = Permissions::from_mode(0o755);
-        std::fs::set_permissions(&tmpdir.path(), perm).unwrap();
-    }
-
-    #[test(tokio::test)]
-    async fn link_soft_ok() {
-        let (_tmpdir, src, dst) = make_tempdir();
-        let src_meta = std::fs::metadata(&src).unwrap();
-        let src_type = src_meta.file_type();
-        let dst_meta = std::fs::symlink_metadata(&dst).unwrap();
-        let dst_type = dst_meta.file_type();
-        assert!(src_type.is_file() && dst.exists());
-        assert!(dst_type.is_file() && dst.exists());
-        assert_eq!(src_meta.dev(), dst_meta.dev());
-        assert_ne!(src_meta.ino(), dst_meta.ino());
-
-        link_soft(&src, &dst).await.unwrap();
-
-        let src_meta = std::fs::metadata(&src).unwrap();
-        let src_type = src_meta.file_type();
-        let dst_meta = std::fs::symlink_metadata(&dst).unwrap();
-        let dst_meta2 = std::fs::metadata(&dst).unwrap();
-        let dst_type = dst_meta.file_type();
-        assert!(src_type.is_file() && dst.exists());
-        assert!(dst_type.is_symlink() && dst.exists());
-        assert_eq!(src_meta.dev(), dst_meta.dev());
-        assert_eq!(src_meta.ino(), dst_meta2.ino());
-    }
-    #[test(tokio::test)]
-    async fn link_soft_nonexistent_src() {
-        let (_tmpdir, src, dst) = make_tempdir();
-        std::fs::remove_file(&src).unwrap();
-
-        assert!(!src.exists());
-        assert!(dst.is_file() && dst.exists());
-
-        link_soft(&src, &dst).await.unwrap();
-
-        assert!(!src.exists());
-        let dst_meta = std::fs::symlink_metadata(&dst).unwrap();
-        let dst_type = dst_meta.file_type();
-        assert!(dst_type.is_symlink());
-    }
-    #[test(tokio::test)]
-    async fn link_soft_nonexistent_dst() {
-        let (_tmpdir, src, dst) = make_tempdir();
-        std::fs::remove_file(&dst).unwrap();
-
-        assert!(src.is_file() && src.exists());
-        assert!(!dst.exists());
-
-        let result = link_soft(&src, &dst).await;
-
-        assert!(result.is_err());
-    }
-    #[test(tokio::test)]
-    async fn link_soft_permissions_err() {
-        let (tmpdir, src, dst) = make_tempdir();
-        assert!(src.is_file() && src.exists());
-        assert!(dst.is_file() && dst.exists());
-
-        let perm = Permissions::from_mode(0o555);
-        std::fs::set_permissions(tmpdir.path(), perm).unwrap();
-        let result = link_soft(&src, &dst).await;
 
         assert!(result.is_err());
 
