@@ -15,7 +15,7 @@ use super::util::THRESHOLD;
 use super::util::{group_by_key, group_by_key_map};
 use super::walk::Node;
 
-fn group_by_size(nodes: Vec<Node>) -> Vec<Vec<Node>> {
+fn group_by_size(nodes: Vec<Node>) -> Vec<(u64, Vec<Node>)> {
     group_by_key(nodes, |n| n.size())
 }
 
@@ -27,24 +27,31 @@ fn find_dups_by_size(nodes: Vec<Node>, dups: Sender<Vec<Node>>, uniqs: Sender<No
     task::spawn(async move {
         let groups = task::block_in_place(|| group_by_size(nodes));
 
-        for group in groups.into_iter() {
+        let mut uniq_count = 0;
+        for (size, group) in groups.into_iter() {
             debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
                     uniqs.send(group.into_iter().next().unwrap()).await.unwrap();
                 });
+                uniq_count += 1;
             } else {
+                let dup_count = group.len();
                 let dups = dups.clone();
                 task::spawn(async move {
                     dups.send(group).await.unwrap();
                 });
+                log::debug!("{} files have same size; {}B.", dup_count, size);
             }
+        }
+        if 0 < uniq_count {
+            log::debug!("{} files have unique size.", uniq_count);
         }
     });
 }
 
-async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
+async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<(u64, Vec<Node>)> {
     if nodes.is_empty() {
         return Vec::new();
     }
@@ -80,7 +87,7 @@ async fn group_by_fast_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>
     task::block_in_place(|| group_by_key_map(dn, |&(d, _)| d, |(_, n)| n))
 }
 
-async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<Vec<Node>> {
+async fn group_by_digest(nodes: Vec<Node>, sem: Semaphore) -> Vec<(u64, Vec<Node>)> {
     if nodes.is_empty() {
         return Vec::new();
     }
@@ -129,19 +136,35 @@ fn find_dups_by_fast_digest_impl(
     task::spawn(async move {
         let groups = group_by_fast_digest(nodes, sem).await;
 
-        for mut group in groups.into_iter() {
+        let mut uniq_count = 0;
+        for (digest, mut group) in groups.into_iter() {
             debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
                     uniqs.send(group.pop().unwrap()).await.unwrap();
                 });
+                uniq_count += 1;
             } else {
+                let dup_count = group.len();
                 let dups = dups.clone();
                 task::spawn(async move {
                     dups.send(group).await.unwrap();
                 });
+                log::debug!(
+                    "{} files have same digests at beginning {}B; {:#018x}",
+                    dup_count,
+                    THRESHOLD,
+                    digest
+                );
             }
+        }
+        if 0 < uniq_count {
+            log::debug!(
+                "{} files have unique digests at beginning {}B.",
+                uniq_count,
+                THRESHOLD
+            );
         }
     });
 }
@@ -159,19 +182,26 @@ fn find_dups_by_digest_impl(
     task::spawn(async move {
         let groups = group_by_digest(nodes, sem).await;
 
-        for mut group in groups.into_iter() {
+        let mut uniq_count = 0;
+        for (digest, mut group) in groups.into_iter() {
             debug_assert!(!group.is_empty());
             if group.len() == 1 {
                 let uniqs = uniqs.clone();
                 task::spawn(async move {
                     uniqs.send(group.pop().unwrap()).await.unwrap();
                 });
+                uniq_count += 1;
             } else {
+                let dup_count = group.len();
                 let dups = dups.clone();
                 task::spawn(async move {
                     dups.send(group).await.unwrap();
                 });
+                log::debug!("{} files have same digests; {:#018x}", dup_count, digest);
             }
+        }
+        if 0 < uniq_count {
+            log::debug!("{} files have unique digests.", uniq_count);
         }
     });
 }
@@ -232,7 +262,7 @@ async fn collect_content_eq(
             let sem = sem.clone();
             task::spawn(async move {
                 let eq = {
-                    let _p = sem.acquire_many(2).await.unwrap();
+                    let _p = sem.acquire_double().await.unwrap();
                     base_node.eq_content(&node).await
                 };
 
@@ -263,9 +293,9 @@ async fn collect_content_eq(
     let mut eqs: Vec<Node> = ReceiverStream::new(eq_rx).collect().await;
     let nes = ReceiverStream::new(ne_rx).collect().await;
 
-    // The base_node can be unwrapped because
-    // it is clear that all of spawned tasks have been end at this time.
+    assert_eq!(1, Arc::strong_count(&base_node));
     eqs.push(Arc::try_unwrap(base_node).unwrap());
+
     (eqs, nes)
 }
 
@@ -308,6 +338,7 @@ fn find_dups_by_content(
         task::spawn(async move {
             let mut nodes = nodes;
             uniqs.send(nodes.pop().unwrap()).await.unwrap();
+            log::debug!("1 file have unique contents.");
         });
         return;
     }
@@ -315,6 +346,7 @@ fn find_dups_by_content(
     task::spawn(async move {
         let groups = group_by_content(nodes, sem).await;
 
+        let mut uniq_count = 0;
         for mut group in groups.into_iter() {
             debug_assert!(!group.is_empty());
             if group.len() == 1 {
@@ -322,12 +354,18 @@ fn find_dups_by_content(
                 task::spawn(async move {
                     uniqs.send(group.pop().unwrap()).await.unwrap();
                 });
+                uniq_count += 1;
             } else {
+                let dup_count = group.len();
                 let dups = dups.clone();
                 task::spawn(async move {
                     dups.send(group).await.unwrap();
                 });
+                log::debug!("{} files have same contents.", dup_count);
             }
+        }
+        if 0 < uniq_count {
+            log::debug!("{} files have unique contents.", uniq_count);
         }
     });
 }
@@ -468,11 +506,17 @@ fn find_dups_core(
         let uniqs = uniqs.clone();
         task::spawn(async move {
             let mut empty_nodes: Vec<Node> = ReceiverStream::new(empty_rx).collect().await;
+            let empty_count = empty_nodes.len();
             match empty_nodes.len().cmp(&1) {
-                Ordering::Equal => uniqs.send(empty_nodes.pop().unwrap()).await.unwrap(),
-                Ordering::Greater => dups.send(empty_nodes).await.unwrap(),
+                Ordering::Equal => {
+                    uniqs.send(empty_nodes.pop().unwrap()).await.unwrap();
+                }
+                Ordering::Greater => {
+                    dups.send(empty_nodes).await.unwrap();
+                }
                 _ => (),
-            }
+            };
+            log::debug!("{} empty files are detected.", empty_count);
         });
     }
 

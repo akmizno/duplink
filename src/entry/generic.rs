@@ -87,6 +87,8 @@ impl Digest for Entry {}
 
 impl ContentEq for Entry {}
 
+// impl LinkTo for Entry {}
+
 #[cfg(test)]
 mod tests {
     use super::Entry;

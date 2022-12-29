@@ -1,7 +1,7 @@
 use std::cmp;
 use std::sync::Arc;
 
-const MIN_FDS: usize = 2; // Two files will be opened at a time to compare them.
+const MIN_FDS: usize = 2; // Two files are opened at a time to compare them.
 
 fn system_fdlimit() -> usize {
     const MAX: usize = std::usize::MAX;
@@ -15,7 +15,7 @@ fn max_concurrency(user_limit: Option<usize>) -> usize {
     cmp::max(
         MIN_FDS,
         cmp::min(
-            system_fdlimit() - 3, // 3 = (stdin, stdout, stderr)
+            system_fdlimit() - 4, // 4 = (stdin, stdout, stderr, output file)
             cmp::min(
                 default_concurrency,
                 user_limit.unwrap_or(default_concurrency),
@@ -24,30 +24,33 @@ fn max_concurrency(user_limit: Option<usize>) -> usize {
     )
 }
 
-type TSemaphore = tokio::sync::Semaphore;
-type TPermit<'a> = tokio::sync::SemaphorePermit<'a>;
-type TMutex = tokio::sync::Mutex<()>;
-type TMutexGuard<'a> = tokio::sync::MutexGuard<'a, ()>;
+type TokSemaphore = tokio::sync::Semaphore;
+type TokPermit<'a> = tokio::sync::SemaphorePermit<'a>;
+type TokMutex = tokio::sync::Mutex<()>;
+type TokMutexGuard<'a> = tokio::sync::MutexGuard<'a, ()>;
 
+#[must_use]
 #[derive(Debug)]
 pub struct SemaphorePermit<'a> {
-    normal: TPermit<'a>,
-    large: Option<TMutexGuard<'a>>,
+    _normal: TokPermit<'a>,
+    _large: Option<TokMutexGuard<'a>>,
 }
 
 pub type AcquireError = tokio::sync::AcquireError;
 
 #[derive(Debug)]
 pub struct SemaphoreImpl {
-    normal: TSemaphore,
-    large: Option<TMutex>,
+    // Semaphore to control overall concurrency.
+    normal: TokSemaphore,
+    // Mutex limits concurrency level of large files if used.
+    large: Option<TokMutex>,
 }
 
 impl SemaphoreImpl {
     fn new(normal_permits: usize, large_mutex: bool) -> SemaphoreImpl {
-        let normal = TSemaphore::new(normal_permits);
+        let normal = TokSemaphore::new(normal_permits);
         let large = if large_mutex {
-            Some(TMutex::new(()))
+            Some(TokMutex::new(()))
         } else {
             None
         };
@@ -56,18 +59,22 @@ impl SemaphoreImpl {
     async fn acquire_small_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
         let normal = self.normal.acquire_many(n).await?;
         Ok(SemaphorePermit {
-            normal,
-            large: None,
+            _normal: normal,
+            _large: None,
         })
     }
     async fn acquire_large_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
-        // Acquire lock from large prior to normal.
+        // Acquire the mutex to reduce concurrency between large files.
         let large = match &self.large {
             None => None,
             Some(mtx) => Some(mtx.lock().await),
         };
+        // Acquire
         let normal = self.normal.acquire_many(n).await?;
-        Ok(SemaphorePermit { normal, large })
+        Ok(SemaphorePermit {
+            _normal: normal,
+            _large: large,
+        })
     }
 }
 
@@ -78,10 +85,10 @@ pub enum Semaphore {
 }
 
 impl Semaphore {
-    pub async fn acquire_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
+    pub async fn acquire_double(&self) -> Result<SemaphorePermit<'_>, AcquireError> {
         match self {
-            Semaphore::Small(sem) => sem.acquire_small_many(n).await,
-            Semaphore::Large(sem) => sem.acquire_large_many(n).await,
+            Semaphore::Small(sem) => sem.acquire_small_many(2).await,
+            Semaphore::Large(sem) => sem.acquire_large_many(2).await,
         }
     }
     pub async fn acquire(&self) -> Result<SemaphorePermit<'_>, AcquireError> {

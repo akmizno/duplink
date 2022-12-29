@@ -1,45 +1,53 @@
 #![cfg_attr(windows, feature(windows_by_handle))]
+
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use clap::value_t_or_exit;
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches};
 use itertools::Itertools;
 use std::path::PathBuf;
-use tokio_stream::StreamExt;
-
 use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
+use tokio_stream::StreamExt;
 
-pub mod api;
-pub mod entry;
-pub mod find;
-pub(crate) mod util;
-pub mod walk;
+mod api;
+mod entry;
+mod find;
+mod util;
+mod walk;
 
 use api::{DuplicateStream, UniqueStream};
 use entry::FileAttr;
-use util::progress::ProgressPipeBuilder;
+use util::progress::ProgressBarBuilder;
 use walk::Node;
-
-fn is_in_tty() -> bool {
-    atty::is(atty::Stream::Stderr) && atty::is(atty::Stream::Stdout)
-}
 
 fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(node) = uniqs.next().await {
-            out.write(format!("{}\n", node.path().display()).as_bytes())
-                .await
-                .unwrap();
+            for entry in node.entries() {
+                out.write(format!("{}\n", entry.path().display()).as_bytes())
+                    .await
+                    .unwrap();
+            }
         }
         out.flush().await.unwrap();
     })
 }
+
 fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(dup_nodes) = dups.next().await {
             for node in dup_nodes {
-                out.write(format!("{}\n", node.path().display()).as_bytes())
-                    .await
-                    .unwrap();
+                for entry in node.entries() {
+                    out.write(format!("{}\n", entry.path().display()).as_bytes())
+                        .await
+                        .unwrap();
+                }
             }
             out.write("\n".as_bytes()).await.unwrap();
         }
@@ -74,17 +82,33 @@ impl Output {
             Output::File(o) => o.flush().await,
         }
     }
+
+    fn is_stdout(&self) -> bool {
+        matches!(self, Output::Stdout(_))
+    }
 }
 impl From<fs::File> for Output {
     fn from(w: fs::File) -> Self {
         Output::File(io::BufWriter::new(w))
     }
 }
-fn build_output_writers(matches: &ArgMatches) -> (Output, Output) {
-    if matches.is_present("unique") {
-        (Output::sink(), Output::stdout())
+async fn build_output_writers(
+    output_file: Option<PathBuf>,
+    unique: bool,
+) -> (bool, (Output, Output)) {
+    let output = if let Some(opath) = output_file {
+        let file = fs::File::create(opath).await.unwrap();
+        Output::from(file)
     } else {
-        (Output::stdout(), Output::sink())
+        Output::stdout()
+    };
+
+    let output_is_stdout = output.is_stdout();
+
+    if unique {
+        (output_is_stdout, (Output::sink(), output))
+    } else {
+        (output_is_stdout, (output, Output::sink()))
     }
 }
 
@@ -136,6 +160,14 @@ async fn main() {
             .required(true)
             .help("Directories or files that duplink will search into."))
 
+        .arg(Arg::with_name("output")
+            .long("output")
+            .short("o")
+            .takes_value(true)
+            .required(false)
+            .help("Output file.")
+            .long_help("Output file to write results. (default: stdout)."))
+
         .arg(Arg::with_name("hdd")
             .long("hdd")
             .required(false)
@@ -148,6 +180,42 @@ async fn main() {
             .required(false)
             .takes_value(true)
             .help("Limit number of open files at a same time"))
+
+        // .group(ArgGroup::with_name("ask-group")
+        //     .args(&["ask-each", "yes"])
+        //     .required(false))
+        .group(ArgGroup::with_name("hardlink-group")
+            .args(&["dedup-hard", "ignore-filesystem"])
+            .required(false))
+        .group(ArgGroup::with_name("dedup-group")
+            .args(&["dedup-hard", "unique"])
+            .required(false))
+        .arg(Arg::with_name("dedup-hard")
+            .long("dedup-hard")
+            .short("L")
+            .required(false)
+            .takes_value(false)
+            .help("Convert duplicate files to hard links."))
+        // .arg(Arg::with_name("ask-each")
+        //     .long("ask-each")
+        //     .short("a")
+        //     .required(false)
+        //     .takes_value(false)
+        //     .help("Ask for each detected files.")
+        //     .long_help("Ask for each detected files whether to execute de-duplication. Use with --dedup-hard or --dedup-soft."))
+        // .arg(Arg::with_name("yes")
+        //     .long("yes")
+        //     .short("y")
+        //     .required(false)
+        //     .takes_value(false)
+        //     .help("De-duplicate all detected files without asking.")
+        //     .long_help("De-duplicate all detected files without asking. Use with --dedup-hard or --dedup-soft."))
+
+        .arg(Arg::with_name("ignore-filesystem")
+            .long("ignore-filesystem")
+            .required(false)
+            .takes_value(false)
+            .help("Detect duplicate files across multiple file systems."))
 
         .group(ArgGroup::with_name("follow-group")
             .args(&["follow", "no-follow"])
@@ -204,8 +272,9 @@ async fn main() {
 
         .get_matches();
 
-    let show_progress = matches.is_present("progress") && is_in_tty();
-    let no_msg = show_progress || matches.is_present("quiet");
+    let dedup_hard = matches.is_present("dedup-hard");
+    let enable_progress = matches.is_present("progress");
+    let no_msg = enable_progress || matches.is_present("quiet");
     let debug = matches.is_present("debug");
 
     let log_level = if debug {
@@ -235,6 +304,8 @@ async fn main() {
 
     let follow = !matches.is_present("no-follow");
 
+    let ignore_dev = matches.is_present("ignore-filesystem");
+
     let paths: Vec<PathBuf> = matches
         .values_of("PATH")
         .unwrap()
@@ -249,23 +320,30 @@ async fn main() {
         .max_depth(max_depth)
         .follow_links(follow)
         .walk(&paths)
-        .collect().await;
+        .collect()
+        .await;
     let nodes_len = nodes.len();
 
-    let duplink = api::DupLink::new(sem_small, sem_large);
-    let (dups, uniqs) = duplink.find_dups(nodes);
+    let dup_finder = api::DupFinder::new(sem_small.clone(), sem_large).ignore_dev(ignore_dev);
+    let (dups, uniqs) = dup_finder.find_dups(nodes);
 
-    let (dups, uniqs) = if show_progress {
-        let mut progress_pipe = ProgressPipeBuilder::new(nodes_len as u64);
-        let dups = progress_pipe.add_vec_stream(dups);
-        let uniqs = progress_pipe.add_stream(uniqs);
-        progress_pipe.build();
-        (dups, uniqs)
+    let dups = if dedup_hard {
+        api::DedupPipe::new(sem_small, nodes_len).dedup(dups)
     } else {
-        (dups, uniqs)
+        dups
     };
 
-    let (dup_out, uniq_out) = build_output_writers(&matches);
+    let (output_is_stdout, (dup_out, uniq_out)) = build_output_writers(
+        matches.value_of("output").map(PathBuf::from),
+        matches.is_present("unique"),
+    )
+    .await;
+
+    let (_bar, (dups, uniqs)) = ProgressBarBuilder::new()
+        .length(nodes_len)
+        .enable_progress_bar(enable_progress)
+        .enable_stream_buffering(output_is_stdout && atty::is(atty::Stream::Stdout))
+        .build(dups, uniqs);
 
     let uniq_handle = write_uniqs(uniq_out, uniqs);
     let dup_handle = write_dups(dup_out, dups);

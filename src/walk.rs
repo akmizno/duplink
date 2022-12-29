@@ -55,6 +55,10 @@ impl Node {
         debug_assert!(!self.entries.is_empty());
         unsafe { self.entries.get_unchecked(0) }
     }
+
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
 }
 
 impl FileAttr for Node {
@@ -167,8 +171,8 @@ impl Eq for DevInoCmp {}
 fn entries2nodes(entries: Vec<Entry>) -> Vec<Node> {
     entries
         .into_iter()
-        .sorted_unstable_by_key(|e| DevInoCmp::new(&e))
-        .group_by(|e| DevInoCmp::new(&e))
+        .sorted_unstable_by_key(DevInoCmp::new)
+        .group_by(DevInoCmp::new)
         .into_iter()
         .map(|(_, g)| g.collect_vec())
         .map(Node::from_entries)
