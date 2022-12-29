@@ -11,10 +11,9 @@ use clap::value_t_or_exit;
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches};
 use itertools::Itertools;
 use std::path::PathBuf;
-use tokio_stream::StreamExt;
-
 use tokio::fs;
 use tokio::io::{self, AsyncWriteExt};
+use tokio_stream::StreamExt;
 
 pub mod api;
 pub mod entry;
@@ -37,6 +36,7 @@ fn write_uniqs(mut out: Output, mut uniqs: UniqueStream) -> tokio::task::JoinHan
         out.flush().await.unwrap();
     })
 }
+
 fn write_dups(mut out: Output, mut dups: DuplicateStream) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn(async move {
         while let Some(dup_nodes) = dups.next().await {
