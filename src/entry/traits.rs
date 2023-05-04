@@ -206,7 +206,7 @@ mod tests {
     use super::*;
     use std::fs::Permissions;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    use test_env_log::test;
+    use test_log::test;
 
     fn make_tempdir() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
