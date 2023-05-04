@@ -1,6 +1,6 @@
 [package]
 name = "duplink"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Akira Mizuno <akmizno@gmail.com>"]
 edition = "2018"
 description = "A CLI tool for finding duplicate files from directory tree and de-duplicating them."
@@ -28,7 +28,7 @@ tempfile = "3"
 memmap = "0.7"
 indicatif = "0.16"
 atty = "0.2"
-compact-rc = "0.3"
+compact-rc = "0.4"
 
 [dev-dependencies]
 test-log = "0.2"
