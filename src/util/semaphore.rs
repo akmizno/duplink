@@ -1,5 +1,5 @@
+use compact_rc::Arc;
 use std::cmp;
-use std::sync::Arc;
 
 const MIN_FDS: usize = 2; // Two files are opened at a time to compare them.
 

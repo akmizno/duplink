@@ -1,8 +1,8 @@
+use compact_rc::Arc;
 use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task;

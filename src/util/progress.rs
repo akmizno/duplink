@@ -1,5 +1,5 @@
 use atty::Stream;
-use std::sync::Arc;
+use compact_rc::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Notify;
 use tokio::task;
